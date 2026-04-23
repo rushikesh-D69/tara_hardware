@@ -20,39 +20,38 @@ void serialParserTask(void *pvParameters) {
     if (Serial.available()) {
       String line = Serial.readStringUntil('\n');
       line.trim();
-      if (line.length() > 0 && line.charAt(0) == '{') {
+      
+      // Look for CMD:x,y,flags format
+      if (line.startsWith("CMD:")) {
         lastWsMessage = millis(); // keep watchdog alive
-
-        StaticJsonDocument<512> doc;
-        if (!deserializeJson(doc, line)) {
-          const char *cmd = doc["type"] | "";
-
-          if (strcmp(cmd, "drive") == 0) {
-            JoyData jd = { (float)doc["x"], (float)doc["y"] };
-            xQueueOverwrite(controlQueue, &jd);
-            // flags bit 0x04 = emergency stop from RPi
-            int flags = doc["flags"] | 0;
-            eStopActive = (flags & 0x04) != 0;
-
-          } else if (strcmp(cmd, "estop") == 0) {
-            eStopActive = (bool)doc["state"];
-            if (eStopActive) {
-              JoyData jd = {0.0f, 0.0f};
-              xQueueOverwrite(controlQueue, &jd);
-            }
-
-          } else if (strcmp(cmd, "nav_stop") == 0) {
-            navMode = NAV_IDLE;
-            seqLen = seqIdx = 0;
-            navStatus = 0; navProgress = 0.0f;
-            pidL.reset(); pidR.reset();
-
-          } else if (strcmp(cmd, "reset_odom") == 0) {
-            resetOdometry();
-            yaw = 0.0f;
-            Serial.println("[ODOM] Reset");
+        
+        float x, y;
+        int flags;
+        // Parse: CMD:0.1234,0.5678,1
+        if (sscanf(line.c_str(), "CMD:%f,%f,%d", &x, &y, &flags) == 3) {
+          JoyData jd = { x, y };
+          xQueueOverwrite(controlQueue, &jd);
+          
+          // flags bit 0x04 = emergency stop from RPi
+          eStopActive = (flags & 0x04) != 0;
+          
+          // If e-stop is active, force motors to zero
+          if (eStopActive) {
+            JoyData stopJd = {0.0f, 0.0f};
+            xQueueOverwrite(controlQueue, &stopJd);
           }
         }
+      } 
+      else if (line.startsWith("nav_stop")) {
+        navMode = NAV_IDLE;
+        seqLen = seqIdx = 0;
+        navStatus = 0; navProgress = 0.0f;
+        pidL.reset(); pidR.reset();
+      }
+      else if (line.startsWith("reset_odom")) {
+        resetOdometry();
+        yaw = 0.0f;
+        Serial.println("[ODOM] Reset");
       }
     }
     vTaskDelay(5 / portTICK_PERIOD_MS); // 5 ms — 200 Hz max parse rate
@@ -161,7 +160,7 @@ void loop() {
     char packet[360];
     float heading_deg = ekf_theta * 180.0f / (float)M_PI;
     snprintf(packet, sizeof(packet),
-             "$TARA,%.3f,%.3f,%.2f,%.2f,%.3f,%d,%d,%ld,%ld,%.3f,%.3f,%.3f,%.2f,%.1f,%.2f,%d,%d,%.2f,%d,%.2f",
+             "SEN:%.3f,%.3f,%.2f,%.2f,%.3f,%d,%d,%ld,%ld,%.3f,%.3f,%.3f,%.2f,%.1f,%.2f,%d,%d,%.2f,%d,%.2f",
              v_linear,       // [1]
              baseSpeed,      // [2]
              yaw,            // [3] IMU yaw angle °

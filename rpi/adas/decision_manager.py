@@ -56,13 +56,11 @@ class Command:
         return round(self.speed_y * 255)   # 0 … 255 int view
 
     def to_serial(self):
-        """Serialize to JSON for ESP32 serialParserTask."""
-        return json.dumps({
-            "type":  "drive",
-            "x":     round(max(-1.0, min(1.0, self.steer_x)), 4),
-            "y":     round(max(0.0,  min(1.0, self.speed_y)), 4),
-            "flags": int(self.flags),
-        })
+        """Serialize to CSV for ESP32 serialParserTask."""
+        x = round(max(-1.0, min(1.0, self.steer_x)), 4)
+        y = round(max(0.0,  min(1.0, self.speed_y)), 4)
+        flags = int(self.flags)
+        return f"CMD:{x},{y},{flags}"
 
     def __repr__(self):
         return (f"Command(steer={self.steer_x:.3f}, "

@@ -95,5 +95,5 @@ extern const float AUTO_STOP_DIST = 5.0f; // effectively disabled
 float batVoltage = 12.0f;
 
 // Control
-float baseSpeed = 0.30f;
+float baseSpeed = 0.80f;
 QueueHandle_t controlQueue;

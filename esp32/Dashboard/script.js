@@ -142,7 +142,7 @@ function handleTelemetry(raw) {
     const data = raw.trim().split(',');
 
     // Validate packet header
-    if (data[0] !== "$TARA" || data.length < 19) {
+    if (data[0] !== "SEN:" || data.length < 19) {
         // Fallback: try legacy "RAW" format for backward compatibility
         if (data[0] === "RAW" && data.length >= 3) {
             const yaw = parseFloat(data[1]).toFixed(2);
@@ -333,7 +333,7 @@ speedSlider.addEventListener('input', (e) => {
 
 // Send speed change on release to avoid flooding
 speedSlider.addEventListener('change', () => {
-    sendJSON({ type: "speed", value: currentBaseSpeed });  // value in PWM
+    sendCommand({ type: "speed", value: currentBaseSpeed });  // value in PWM
 });
 
 const pprLInput = document.getElementById('ppr-l-input');
@@ -344,7 +344,7 @@ btnUpdatePpr.addEventListener('click', () => {
     let pprL = parseFloat(pprLInput.value);
     let pprR = parseFloat(pprRInput.value);
     if (!isNaN(pprL) && pprL > 0 && !isNaN(pprR) && pprR > 0) {
-        sendJSON({ type: "ppr", value_l: pprL, value_r: pprR });
+        sendCommand({ type: "ppr", value_l: pprL, value_r: pprR });
     }
 });
 
@@ -356,7 +356,7 @@ let eStopEngaged = false;
 
 btnEstop.addEventListener('click', () => {
     eStopEngaged = !eStopEngaged;
-    sendJSON({ type: "estop", state: eStopEngaged });
+    sendCommand({ type: "estop", state: eStopEngaged });
 
     // Visual feedback
     if (eStopEngaged) {
@@ -374,9 +374,13 @@ btnEstop.addEventListener('click', () => {
 /* =========================================
    7. DATA TRANSMISSION
    ========================================= */
-function sendJSON(obj) {
+function sendCommand(cmd) {
     if (isConnected && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify(obj));
+        if (typeof cmd === 'string') {
+            ws.send(cmd);
+        } else {
+            ws.send(JSON.stringify(cmd));
+        }
     }
 }
 
@@ -385,12 +389,12 @@ let heartbeatCounter = 0;
 setInterval(() => {
     if (isConnected && ws.readyState === WebSocket.OPEN) {
         if (!autoMode) {
-            sendJSON({ type: "drive", x: currentX, y: currentY });
+            sendCommand(`CMD:${currentX},${currentY},${eStopEngaged ? 4 : 0}`);
         } else {
             // Heartbeat in auto mode at 2Hz (every 10 ticks)
             heartbeatCounter++;
             if (heartbeatCounter >= 10) {
-                sendJSON({ type: "heartbeat" });
+                sendCommand({ type: "heartbeat" });
                 heartbeatCounter = 0;
             }
         }
@@ -769,7 +773,7 @@ btnModeToggle.addEventListener('change', () => {
         autoControlsEl.classList.remove('disabled');
         zone.classList.add('joystick-disabled');
         currentX = 0; currentY = 0;
-        sendJSON({ type: 'nav_stop' });
+        sendCommand({ type: 'nav_stop' });
         navStatusBadge.textContent = 'IDLE';
         navStatusBadge.className = 'nav-status-badge';
         navStatusDetail.textContent = 'Auto mode — waiting for command';
@@ -778,7 +782,7 @@ btnModeToggle.addEventListener('change', () => {
         autoPanel.classList.remove('auto-active');
         autoControlsEl.classList.add('disabled');
         zone.classList.remove('joystick-disabled');
-        sendJSON({ type: 'nav_stop' });
+        sendCommand({ type: 'nav_stop' });
         navStatusBadge.textContent = 'IDLE';
         navStatusBadge.className = 'nav-status-badge';
         navStatusDetail.textContent = 'Manual joystick active';
@@ -802,7 +806,7 @@ document.getElementById('btn-goto').addEventListener('click', () => {
     if (!isConnected || !autoMode) return;
     const cm    = parseFloat(document.getElementById('nav-dist-cm').value);
     const speed = parseInt(navGotoSpeedSlider.value) / 100;
-    sendJSON({ type: 'goto', dist: cm / 100.0, speed });
+    sendCommand({ type: 'goto', dist: cm / 100.0, speed });
     navStatusBadge.textContent  = 'GOTO';
     navStatusBadge.className    = 'nav-status-badge badge-goto';
     navStatusDetail.textContent = `Driving ${cm} cm forward…`;
@@ -812,7 +816,7 @@ document.getElementById('btn-goto').addEventListener('click', () => {
 document.getElementById('btn-turn-left').addEventListener('click', () => {
     if (!isConnected || !autoMode) return;
     const deg = parseFloat(document.getElementById('nav-turn-deg').value);
-    sendJSON({ type: 'turn', angle: deg, speed: 0.20 });
+    sendCommand({ type: 'turn', angle: deg, speed: 0.20 });
     navStatusBadge.textContent  = 'TURN';
     navStatusBadge.className    = 'nav-status-badge badge-turn';
     navStatusDetail.textContent = `Turning left ${deg}°…`;
@@ -821,7 +825,7 @@ document.getElementById('btn-turn-left').addEventListener('click', () => {
 document.getElementById('btn-turn-right').addEventListener('click', () => {
     if (!isConnected || !autoMode) return;
     const deg = parseFloat(document.getElementById('nav-turn-deg').value);
-    sendJSON({ type: 'turn', angle: -deg, speed: 0.20 });
+    sendCommand({ type: 'turn', angle: -deg, speed: 0.20 });
     navStatusBadge.textContent  = 'TURN';
     navStatusBadge.className    = 'nav-status-badge badge-turn';
     navStatusDetail.textContent = `Turning right ${deg}°…`;
@@ -829,7 +833,7 @@ document.getElementById('btn-turn-right').addEventListener('click', () => {
 
 // --- Abort button ---
 document.getElementById('btn-nav-abort').addEventListener('click', () => {
-    sendJSON({ type: 'nav_stop' });
+    sendCommand({ type: 'nav_stop' });
     navStatusBadge.textContent  = 'IDLE';
     navStatusBadge.className    = 'nav-status-badge';
     navStatusDetail.textContent = 'Navigation aborted';
@@ -899,7 +903,7 @@ window.removeSeqStep = function(i) {
 
 btnSeqExecute.addEventListener('click', () => {
     if (!isConnected || !autoMode || seqSteps.length === 0) return;
-    sendJSON({ type: 'sequence', steps: seqSteps });
+    sendCommand({ type: 'sequence', steps: seqSteps });
     navStatusBadge.textContent  = 'SEQ';
     navStatusBadge.className    = 'nav-status-badge badge-seq';
     navStatusDetail.textContent = `Running ${seqSteps.length}-step sequence…`;

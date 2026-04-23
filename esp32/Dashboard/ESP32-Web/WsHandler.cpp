@@ -7,11 +7,23 @@ void onWsEvent(AsyncWebSocket *srv, AsyncWebSocketClient *client, AwsEventType t
   if (type == WS_EVT_DATA) {
     lastWsMessage = millis();
 
+    // Check if it's a CMD:x,y,flags string (new dash format)
+    if (len > 4 && data[0] == 'C' && data[1] == 'M' && data[2] == 'D' && data[3] == ':') {
+      float x, y;
+      int flags;
+      if (sscanf((char*)data, "CMD:%f,%f,%d", &x, &y, &flags) == 3) {
+        JoyData jd = { x, y };
+        xQueueOverwrite(controlQueue, &jd);
+        eStopActive = (flags & 0x04) != 0;
+      }
+      return;
+    }
+
     StaticJsonDocument<1024> doc;
     if (deserializeJson(doc, data, len)) return;
 
     const char *cmd = doc["type"];
-    if (strcmp(cmd, "drive") == 0) {
+    if (cmd && strcmp(cmd, "drive") == 0) {
       JoyData jd = {doc["x"], doc["y"]};
       xQueueOverwrite(controlQueue, &jd);
     } else if (strcmp(cmd, "heartbeat") == 0) {

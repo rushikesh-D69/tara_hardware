@@ -188,19 +188,19 @@ void motorTask(void *pvParameters) {
         auto applyOpenLoop = [](float val, float maxPwm) -> int {
           if (fabsf(val) < 0.05f) return 0;
           int sign = (val > 0) ? 1 : -1;
-          int floorPwm = 130;
+          int floorPwm = 150; // Requested MIN PWM
           if (maxPwm < floorPwm) floorPwm = maxPwm;
           return sign * (floorPwm + (int)((fabsf(val) - 0.05f) * (maxPwm - floorPwm) / 0.95f));
         };
 
-        const int MAX_PWM_VAL = 200;
+        const int MAX_PWM_VAL = 255;
         int pwmCeil = (int)(baseSpeed * MAX_PWM_VAL);
         currentL_PWM = applyOpenLoop(targetVL, pwmCeil);
         currentR_PWM = applyOpenLoop(targetVR, pwmCeil);
       }
     }
 
-    const int FINAL_MAX_PWM = 200;
+    const int FINAL_MAX_PWM = 255;
     currentL_PWM = constrain(currentL_PWM, -FINAL_MAX_PWM, FINAL_MAX_PWM);
     currentR_PWM = constrain(currentR_PWM, -FINAL_MAX_PWM, FINAL_MAX_PWM);
 
