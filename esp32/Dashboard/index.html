@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>TÁRA — Telemetry & Autonomous Control Dashboard</title>
+    <meta name="description" content="Real-time telemetry and control dashboard for the TÁRA ESP32-powered autonomous vehicle.">
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <!-- ========== HEADER ========== -->
+    <header class="top-bar">
+        <div class="top-bar-left">
+            <div class="logo-mark">T</div>
+            <div>
+                <h1>TÁRA Command Center</h1>
+                <span class="subtitle">Tracking &amp; Adaptive Road Autonomous</span>
+            </div>
+        </div>
+        <div class="top-bar-right">
+            <div id="connection-status" class="badge disconnected">
+                <span class="pulse-dot"></span>
+                System Offline
+            </div>
+            <button id="btn-estop" class="btn-estop" title="Emergency Stop">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                E-STOP
+            </button>
+        </div>
+    </header>
+
+    <!-- ========== MAIN GRID ========== -->
+    <main class="dashboard-grid">
+
+        <!-- ===== ROW 1: JOYSTICK / ORIENTATION / TELEMETRY ===== -->
+
+        <!-- Panel 1: Manual Override (Joystick + Speed Slider) -->
+        <section class="panel control-panel" id="panel-control">
+            <h2>Manual Override</h2>
+            <div id="joystick-zone">
+                <div id="joystick-stick"></div>
+            </div>
+            <div class="control-readout">
+                <span>Steer: <span id="joy-x" class="mono-value">0</span></span>
+                <span>Throttle: <span id="joy-y" class="mono-value">0</span></span>
+            </div>
+
+            <div class="speed-slider-group">
+                <label for="speed-slider">Max Speed (PWM)</label>
+                <div class="slider-row">
+                    <input type="range" id="speed-slider" min="0" max="255" value="150" step="1">
+                    <span id="speed-value" class="mono-value">150</span>
+                </div>
+            </div>
+            
+            <div class="speed-slider-group" style="margin-top:20px;">
+                <label>Encoder PPR (Left / Right)</label>
+                <div class="slider-row">
+                    <input type="number" id="ppr-l-input" placeholder="L PPR" style="width: 60px; flex:none; padding:4px; font-size:14px;" value="45" step="0.1">
+                    <input type="number" id="ppr-r-input" placeholder="R PPR" style="width: 60px; flex:none; padding:4px; font-size:14px; margin-left:5px;" value="45" step="0.1">
+                    <button id="btn-update-ppr" class="btn" style="flex:none; padding:4px 12px; margin-left:10px;">Set</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Panel 2: Spatial Orientation (Compass + Rotating Robot) -->
+        <section class="panel visualizer-panel" id="panel-orientation">
+            <h2>Spatial Orientation</h2>
+            <div id="compass-container">
+                <span class="compass-label compass-n">N</span>
+                <span class="compass-label compass-e">E</span>
+                <span class="compass-label compass-s">S</span>
+                <span class="compass-label compass-w">W</span>
+                <div class="compass-ring"></div>
+                <div id="car-model">
+                    <div class="car-body">
+                        <svg class="car-arrow" viewBox="0 0 24 24" fill="currentColor" width="28" height="28"><path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8-8-8z"/></svg>
+                    </div>
+                </div>
+            </div>
+            <div class="orientation-readout">
+                <div class="data-chip">
+                    <span class="label">Yaw</span>
+                    <span id="data-yaw" class="value">0.00°</span>
+                </div>
+                <div class="data-chip">
+                    <span class="label">Rate</span>
+                    <span id="data-rate" class="value">0.00°/s</span>
+                </div>
+                <div class="data-chip">
+                    <span class="label">ω (rad/s)</span>
+                    <span id="data-accel" class="value">0.000 r/s</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Panel 3: Live Telemetry & ADAS -->
+        <section class="panel telemetry-panel" id="panel-telemetry">
+            <h2>Live Telemetry</h2>
+            <div class="data-row">
+                <span class="label">Vehicle Speed:</span>
+                <span id="data-speed" class="value">0.00 m/s</span>
+            </div>
+            <div class="data-row">
+                <span class="label">Target Speed:</span>
+                <span id="data-vtarget" class="value">0.00 m/s</span>
+            </div>
+            <div class="data-row">
+                <span class="label">Yaw Angle:</span>
+                <span id="data-yaw2" class="value">0.00°</span>
+            </div>
+            <div class="data-row">
+                <span class="label">Angular Vel:</span>
+                <span id="data-accel2" class="value">0.000 rad/s</span>
+            </div>
+
+            <hr class="divider">
+
+            <h2>ADAS Systems</h2>
+            <div class="data-row">
+                <span class="label">ACC Status:</span>
+                <span id="status-acc" class="value badge standby">Standby</span>
+            </div>
+            <div class="data-row">
+                <span class="label">AEB Status:</span>
+                <span id="status-aeb" class="value badge standby">Standby</span>
+            </div>
+            <div class="data-row">
+                <span class="label">Lead Distance:</span>
+                <span id="data-lead" class="value">— cm</span>
+            </div>
+            <div class="data-row">
+                <span class="label">Time to Collision:</span>
+                <span id="data-ttc" class="value">— s</span>
+            </div>
+        </section>
+
+        <!-- ===== ROW 2: SPEED GRAPH / ULTRASONIC / MINI MAP ===== -->
+
+        <!-- Panel 4: Speed Graph (Chart.js) -->
+        <section class="panel chart-panel" id="panel-chart">
+            <h2>Speed Graph</h2>
+            <div class="chart-wrapper">
+                <canvas id="speed-chart"></canvas>
+            </div>
+        </section>
+
+        <!-- Panel 5: Camera Stream + Encoder -->
+        <section class="panel sensor-panel" id="panel-sensors">
+            <h2>Camera Feed</h2>
+            <div class="camera-stream-wrapper">
+                <img id="pi-camera-stream" alt="Pi Camera Feed Offline" src="" style="width: 100%; height: auto; border-radius: 8px;">
+            </div>
+
+            <hr class="divider">
+
+            <h2>Encoders & Odometry</h2>
+            <div class="encoder-grid">
+                <div class="encoder-card">
+                    <span class="encoder-label">Left Encoder</span>
+                    <span id="enc-left" class="encoder-value">0</span>
+                    <span class="encoder-unit">pulses</span>
+                </div>
+                <div class="encoder-card">
+                    <span class="encoder-label">Right Encoder</span>
+                    <span id="enc-right" class="encoder-value">0</span>
+                    <span class="encoder-unit">pulses</span>
+                </div>
+                <div class="encoder-card wide">
+                    <span class="encoder-label">Distance Traveled</span>
+                    <span id="enc-distance" class="encoder-value">0.00</span>
+                    <span class="encoder-unit">meters</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Panel 6: Mini Map + Status -->
+        <section class="panel map-panel" id="panel-map">
+            <h2>Odometry Map</h2>
+            <div class="minimap-wrapper">
+                <canvas id="minimap-canvas" width="280" height="280"></canvas>
+            </div>
+            <button id="btn-clear-map" class="btn-secondary">Clear Path</button>
+
+            <hr class="divider">
+
+            <h2>System Status</h2>
+            <div class="status-grid">
+                <div class="status-item">
+                    <div class="status-icon" id="status-wifi-icon">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>
+                    </div>
+                    <span class="status-label">WiFi</span>
+                    <span id="status-wifi" class="status-val disconnected-text">Offline</span>
+                </div>
+                <div class="status-item">
+                    <div class="status-icon">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="6" width="18" height="12" rx="2"/><line x1="23" y1="10" x2="23" y2="14"/></svg>
+                    </div>
+                    <span class="status-label">Battery</span>
+                    <span id="status-battery" class="status-val">— V</span>
+                </div>
+                <div class="status-item">
+                    <div class="status-icon">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>
+                    </div>
+                    <span class="status-label">Motors</span>
+                    <span id="status-motors" class="status-val">Idle</span>
+                </div>
+            </div>
+
+        <!-- Panel 7: Autonomous Navigator (full width) -->
+        <section class="panel auto-panel" id="panel-autonomous">
+
+            <!-- Header: title + MANUAL/AUTO toggle -->
+            <div class="auto-panel-header">
+                <h2 class="auto-panel-title">Autonomous Navigator</h2>
+                <div class="mode-toggle-group">
+                    <span class="mode-label" id="mode-label-manual">MANUAL</span>
+                    <label class="mode-toggle-switch" title="Toggle Manual / Auto mode">
+                        <input type="checkbox" id="btn-mode-toggle">
+                        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                    </label>
+                    <span class="mode-label mode-label-auto" id="mode-label-auto">AUTO</span>
+                </div>
+            </div>
+
+            <!-- Live nav status bar -->
+            <div class="nav-status-bar">
+                <div class="nav-status-left">
+                    <span class="nav-status-badge" id="nav-status-badge">IDLE</span>
+                    <span class="nav-status-detail" id="nav-status-detail">Manual joystick active</span>
+                </div>
+                <div class="nav-progress-track">
+                    <div class="nav-progress-fill" id="nav-progress-fill"></div>
+                    <span class="nav-progress-pct" id="nav-progress-pct">0%</span>
+                </div>
+            </div>
+
+            <!-- Control grid (3 columns) -->
+            <div class="auto-controls-grid" id="auto-controls">
+
+                <!-- GoTo Distance -->
+                <div class="nav-section">
+                    <span class="nav-section-title">GoTo Distance</span>
+                    <div class="nav-input-row">
+                        <input type="number" id="nav-dist-cm" value="20" min="1" max="500" step="1" class="nav-input">
+                        <span class="nav-unit">cm</span>
+                    </div>
+                    <div class="nav-input-row">
+                        <span class="nav-unit">Speed</span>
+                        <input type="range" id="nav-goto-speed" min="10" max="50" value="25" step="5" class="nav-speed-slider">
+                        <span class="mono-value" id="nav-goto-speed-val">0.25</span>
+                        <span class="nav-unit">m/s</span>
+                    </div>
+                    <button class="btn-nav-go" id="btn-goto">▶ Go Forward</button>
+                </div>
+
+                <!-- Turn In-Place -->
+                <div class="nav-section">
+                    <span class="nav-section-title">Turn In-Place</span>
+                    <div class="nav-input-row">
+                        <input type="number" id="nav-turn-deg" value="90" min="1" max="360" step="1" class="nav-input">
+                        <span class="nav-unit">°</span>
+                    </div>
+                    <div class="turn-btn-row">
+                        <button class="btn-nav-dir" id="btn-turn-left">↺ Left</button>
+                        <button class="btn-nav-dir" id="btn-turn-right">Right ↻</button>
+                    </div>
+                    <button class="btn-nav-abort" id="btn-nav-abort">✕ Abort Nav</button>
+                </div>
+
+                <!-- Sequence Builder -->
+                <div class="nav-section nav-seq-section">
+                    <span class="nav-section-title">Sequence Builder</span>
+                    <div class="seq-add-row">
+                        <select id="seq-step-type" class="nav-select">
+                            <option value="goto">GoTo</option>
+                            <option value="turn">Turn</option>
+                        </select>
+                        <select id="seq-turn-dir" class="nav-select" style="display: none;">
+                            <option value="left">Left</option>
+                            <option value="right">Right</option>
+                        </select>
+                        <input type="number" id="seq-step-value" value="20" min="1" max="500" class="nav-input nav-input-sm">
+                        <span class="nav-unit" id="seq-step-unit">cm</span>
+                        <button class="btn-nav-add" id="btn-seq-add">+ Add</button>
+                    </div>
+                    <div class="seq-steps-list" id="seq-steps-list">
+                        <p class="seq-empty" id="seq-empty">No steps yet.</p>
+                    </div>
+                    <div class="seq-action-row">
+                        <button class="btn-nav-exec" id="btn-seq-execute" disabled>▶ Execute All</button>
+                        <button class="btn-nav-clear-seq" id="btn-seq-clear">⬜ Clear</button>
+                    </div>
+                </div>
+
+            </div>
+        </section>
+
+    </main>
+
+
+    <!-- ========== FOOTER ========== -->
+    <footer class="bottom-bar">
+        <span>TÁRA Dashboard v2.0 — Real-Time Autonomous Vehicle Telemetry</span>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+
+</html>

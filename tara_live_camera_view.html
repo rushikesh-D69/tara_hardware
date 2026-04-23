@@ -1,0 +1,135 @@
+
+<style>
+@keyframes scan { 0%{opacity:.7} 50%{opacity:1} 100%{opacity:.7} }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+@keyframes pulse { 0%,100%{r:18} 50%{r:22} }
+@keyframes dashMove { to { stroke-dashoffset: -24; } }
+.scan { animation: scan 2s ease-in-out infinite; }
+.blink { animation: blink 1.2s ease-in-out infinite; }
+.dash-flow { stroke-dasharray: 8 6; animation: dashMove 0.8s linear infinite; }
+</style>
+<svg width="100%" viewBox="0 0 680 440" xmlns="http://www.w3.org/2000/svg">
+<defs>
+  <linearGradient id="road" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#1a1a1a"/>
+    <stop offset="100%" stop-color="#2e2e2e"/>
+  </linearGradient>
+  <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#0a1628"/>
+    <stop offset="100%" stop-color="#1a2d4a"/>
+  </linearGradient>
+  <linearGradient id="lane-fill" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#1D9E75" stop-opacity="0"/>
+    <stop offset="100%" stop-color="#1D9E75" stop-opacity="0.18"/>
+  </linearGradient>
+  <linearGradient id="danger-fill" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#E24B4A" stop-opacity="0"/>
+    <stop offset="100%" stop-color="#E24B4A" stop-opacity="0.25"/>
+  </linearGradient>
+  <linearGradient id="warn-fill" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#EF9F27" stop-opacity="0"/>
+    <stop offset="100%" stop-color="#EF9F27" stop-opacity="0.2"/>
+  </linearGradient>
+  <clipPath id="screen"><rect x="0" y="0" width="680" height="440" rx="12"/></clipPath>
+</defs>
+
+<g clip-path="url(#screen)">
+
+<!-- Sky / horizon -->
+<rect x="0" y="0" width="680" height="190" fill="url(#sky)"/>
+
+<!-- Road surface -->
+<rect x="0" y="185" width="680" height="255" fill="url(#road)"/>
+
+<!-- Horizon line glow -->
+<rect x="0" y="183" width="680" height="6" fill="#1D9E75" opacity="0.12"/>
+
+<!-- Road edge lines (perspective) -->
+<polygon points="0,440 120,185 160,185 0,440" fill="#555" opacity="0.4"/>
+<polygon points="680,440 560,185 520,185 680,440" fill="#555" opacity="0.4"/>
+
+<!-- Lane markers (dashes, perspective) -->
+<line class="dash-flow" x1="340" y1="440" x2="310" y2="270" stroke="#EF9F27" stroke-width="3" opacity="0.8"/>
+<line class="dash-flow" x1="340" y1="440" x2="370" y2="270" stroke="#EF9F27" stroke-width="3" opacity="0.8" style="animation-delay:-0.4s"/>
+
+<!-- Detected lane overlay (green fill polygon) -->
+<polygon points="160,185 200,185 340,440 0,440" fill="url(#lane-fill)"/>
+<polygon points="480,185 520,185 680,440 340,440" fill="url(#lane-fill)"/>
+
+<!-- Left lane boundary line -->
+<line x1="160" y1="185" x2="0" y2="440" stroke="#1D9E75" stroke-width="2.5" opacity="0.9"/>
+<!-- Right lane boundary line -->
+<line x1="520" y1="185" x2="680" y2="440" stroke="#1D9E75" stroke-width="2.5" opacity="0.9"/>
+
+<!-- CENTER KEEP line -->
+<line x1="310" y1="270" x2="200" y2="440" stroke="#1D9E75" stroke-width="1" stroke-dasharray="4 8" opacity="0.5"/>
+<line x1="370" y1="270" x2="480" y2="440" stroke="#1D9E75" stroke-width="1" stroke-dasharray="4 8" opacity="0.5"/>
+
+<!-- Obstacle car (simplified shape) ahead -->
+<rect x="265" y="215" width="150" height="80" rx="8" fill="#334"/>
+<rect x="280" y="225" width="120" height="50" rx="6" fill="#445"/>
+<rect x="270" y="270" width="20" height="24" rx="3" fill="#334"/>
+<rect x="390" y="270" width="20" height="24" rx="3" fill="#334"/>
+<!-- taillights -->
+<rect x="272" y="250" width="14" height="8" rx="2" fill="#E24B4A" opacity="0.9"/>
+<rect x="394" y="250" width="14" height="8" rx="2" fill="#E24B4A" opacity="0.9"/>
+
+<!-- ACC distance zones -->
+<!-- Danger zone (close) -->
+<polygon points="200,295 480,295 520,360 160,360" fill="url(#danger-fill)" opacity="0.9"/>
+<line x1="200" y1="295" x2="480" y2="295" stroke="#E24B4A" stroke-width="1" stroke-dasharray="5 4" opacity="0.8"/>
+
+<!-- Warning zone (medium) -->
+<polygon points="170,360 510,360 560,420 120,420" fill="url(#warn-fill)" opacity="0.8"/>
+<line x1="170" y1="360" x2="510" y2="360" stroke="#EF9F27" stroke-width="1" stroke-dasharray="5 4" opacity="0.7"/>
+
+<!-- Safe zone label -->
+<text x="340" y="410" text-anchor="middle" font-family="monospace" font-size="11" fill="#1D9E75" opacity="0.85">SAFE ZONE</text>
+<text x="340" y="350" text-anchor="middle" font-family="monospace" font-size="10" fill="#EF9F27" opacity="0.85">CAUTION  1.4 m</text>
+<text x="340" y="308" text-anchor="middle" font-family="monospace" font-size="10" fill="#E24B4A" opacity="0.9">DANGER  0.6 m</text>
+
+<!-- pothole highlight on road -->
+<ellipse cx="180" cy="400" rx="28" ry="10" fill="#E24B4A" opacity="0.25"/>
+<ellipse cx="180" cy="400" rx="28" ry="10" fill="none" stroke="#E24B4A" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.8"/>
+<text x="116" y="404" font-family="monospace" font-size="10" fill="#E24B4A" opacity="0.9">POTHOLE</text>
+
+<!-- Speed sign detected (top right) -->
+<circle cx="580" cy="80" r="36" fill="#fff" opacity="0.95"/>
+<circle cx="580" cy="80" r="36" fill="none" stroke="#E24B4A" stroke-width="5"/>
+<text x="580" y="88" text-anchor="middle" font-family="monospace" font-size="22" font-weight="700" fill="#1a1a1a">30</text>
+<!-- detection box around sign -->
+<rect x="537" y="38" width="86" height="86" rx="4" fill="none" stroke="#EF9F27" stroke-width="1.5" stroke-dasharray="5 4" class="scan"/>
+<text x="580" y="28" text-anchor="middle" font-family="monospace" font-size="10" fill="#EF9F27">TSR: speed_limit</text>
+<text x="580" y="142" text-anchor="middle" font-family="monospace" font-size="10" fill="#EF9F27" opacity="0.8">conf: 0.94</text>
+
+<!-- HUD overlay: top left -->
+<rect x="12" y="12" width="180" height="80" rx="6" fill="#000" opacity="0.55"/>
+<text x="22" y="30" font-family="monospace" font-size="11" fill="#1D9E75">LANE  ● TRACKING</text>
+<text x="22" y="46" font-family="monospace" font-size="11" fill="#EF9F27">ACC   ● ACTIVE</text>
+<text x="22" y="62" font-family="monospace" font-size="11" fill="#EF9F27">LDW   ● ON</text>
+<text x="22" y="78" font-family="monospace" font-size="11" fill="#1D9E75">LKA   ● ASSIST</text>
+
+<!-- HUD: speed + steering -->
+<rect x="12" y="104" width="180" height="52" rx="6" fill="#000" opacity="0.55"/>
+<text x="22" y="122" font-family="monospace" font-size="11" fill="#B5D4F4">SPEED   18 cm/s</text>
+<text x="22" y="138" font-family="monospace" font-size="11" fill="#B5D4F4">STEER  +4.2°  ←</text>
+<text x="22" y="154" font-family="monospace" font-size="11" fill="#B5D4F4">DIST    1.4 m</text>
+
+<!-- Scan lines (CRT feel) -->
+<rect x="0" y="0" width="680" height="440" fill="none" stroke="#1D9E75" stroke-width="0.3" opacity="0.04"/>
+
+<!-- Corner brackets (camera frame) -->
+<path d="M0 20 L0 0 L20 0" fill="none" stroke="#1D9E75" stroke-width="1.5" opacity="0.7"/>
+<path d="M660 0 L680 0 L680 20" fill="none" stroke="#1D9E75" stroke-width="1.5" opacity="0.7"/>
+<path d="M0 420 L0 440 L20 440" fill="none" stroke="#1D9E75" stroke-width="1.5" opacity="0.7"/>
+<path d="M660 440 L680 440 L680 420" fill="none" stroke="#1D9E75" stroke-width="1.5" opacity="0.7"/>
+
+<!-- REC indicator -->
+<circle cx="648" cy="18" r="5" fill="#E24B4A" class="blink"/>
+<text x="636" y="22" text-anchor="end" font-family="monospace" font-size="11" fill="#E24B4A">REC</text>
+
+<!-- timestamp -->
+<text x="340" y="430" text-anchor="middle" font-family="monospace" font-size="10" fill="#888">TARA-ADAS  |  frame: 00:04:21.83  |  RPi4B  |  session_019</text>
+
+</g>
+</svg>
