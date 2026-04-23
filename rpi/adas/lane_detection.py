@@ -177,14 +177,23 @@ class LaneDetector:
         elif left_lane is not None or right_lane is not None:
             # Only one lane visible — estimate center from single lane
             result.lane_detected = True
+            
+            # Assuming lane width is ~70% of frame width in BEV, which maps
+            # roughly to a similar proportion at the bottom of the camera view.
+            half_lane = 0.35 * self.proc_w
+            
             if left_lane is not None:
-                # Only left lane visible — assume we're drifting right
-                result.lane_center_offset = 30
-                result.departure_warning = True
+                # Only left lane visible — estimate center by adding half-width
+                est_center = left_lane[0] + half_lane
             else:
-                result.lane_center_offset = est_center - (self.proc_w / 2)
+                # Only right lane visible — estimate center by subtracting half-width
+                est_center = right_lane[0] - half_lane
+                
+            result.lane_center_offset = est_center - (self.proc_w / 2)
+            
             if abs(result.lane_center_offset) > self.cfg.LANE_DEPARTURE_THRESHOLD:
                 result.departure_warning = True
+                
             normalized_offset = result.lane_center_offset / (self.proc_w / 2)
             result.steering_correction = max(-1.0, min(1.0, normalized_offset))
         else:
