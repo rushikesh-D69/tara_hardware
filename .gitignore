@@ -1,0 +1,28 @@
+# TARA ADAS — Git Ignore
+
+# Firebase credentials (NEVER commit this)
+firebase_credentials.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+venv/
+.venv/
+
+# TFLite models (too large for git — store in cloud or LFS)
+*.tflite
+
+# Recordings (generated data)
+rpi/recordings/
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
