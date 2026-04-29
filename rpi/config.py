@@ -45,9 +45,8 @@ LANE_ADAPTIVE_C = -25            # Negative = detect pixels brighter than local 
 # 5 handles glossy chart-paper reflections better than 3
 LANE_MORPH_KERNEL = 5
 
-# Steering deadband (pixels) — offsets within this range produce zero correction.
-# Eliminates jitter when car is well-centered. Increase if car oscillates at center.
-LANE_STEERING_DEADBAND = 5
+# Steering deadband (pixels) — set to 0 for maximum sensitivity on narrow tracks.
+LANE_STEERING_DEADBAND = 0
 
 # Canny edge detection (fallback mode only, used when LANE_USE_ADAPTIVE_THRESH=False)
 CANNY_LOW = 40
@@ -179,8 +178,8 @@ POTHOLE_STEER_MAGNITUDE = 60  # PWM offset for avoidance
 ACC_EMERGENCY_STOP_DIST = 10   # cm — slam brakes
 ACC_MIN_FOLLOW_DIST = 25       # cm — slow down significantly
 ACC_CRUISE_DIST = 50           # cm — maintain speed
-ACC_DEFAULT_SPEED = 180        # PWM — default cruise speed (ESP32 floor is 150)
-ACC_MAX_SPEED = 220            # PWM — absolute max speed (limit to 230 for stability)
+ACC_DEFAULT_SPEED = 160        # PWM — lowered for stable testing (ESP32 floor is ~140-150)
+ACC_MAX_SPEED = 180            # PWM — absolute max speed
 
 # ACC PID removed — speed control is handled by the ESP32 motor driver.
 # ACC now outputs a normalized speed setpoint (0.0–1.0) → ESP32 jd.y.

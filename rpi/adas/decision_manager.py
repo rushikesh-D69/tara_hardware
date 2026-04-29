@@ -108,7 +108,7 @@ class DecisionManager:
         # Reduced from 0.55 — lane detector already smooths via polynomial history
         self._smooth_steer   = 0.0
         self._smooth_speed   = 0.0   # START at zero (ramp up via EMA once lanes found)
-        self._steer_alpha    = 0.35   # lighter smoothing for faster response
+        self._steer_alpha    = 0.20   # reduced from 0.35 for faster response
         self._speed_alpha    = 0.60
 
         # Lane-loss fail-safe
@@ -200,8 +200,9 @@ class DecisionManager:
                 self._lane_lost_frames = 0
                 # steering_correction is already normalized: -1.0 … 1.0
                 # Weight by detection confidence for smoother single-lane behavior
-                confidence_weight = getattr(lane_result, 'confidence', 1.0)
-                self._last_steer_x = lane_result.steering_correction * min(1.0, confidence_weight + 0.3)
+                # Increase gain for indoor track (proportional steering)
+                steer_gain = 1.2
+                self._last_steer_x = lane_result.steering_correction * steer_gain * min(1.0, confidence_weight + 0.3)
             else:
                 self._lane_lost_frames += 1
 
@@ -234,10 +235,17 @@ class DecisionManager:
 
         # ── Lane-loss fail-safe ───────────────────────────────────────────
         if self._lane_lost_frames >= self._lane_lost_threshold:
-            raw_speed = min(raw_speed, self._cruise_speed * 0.5)
-            raw_steer = raw_steer * 0.3
-            if self._lane_lost_frames == self._lane_lost_threshold:
-                log.warning("Lane lost ≥3 frames — 50% speed, dampened steering")
+            # If lane lost for a short time, slow down and zero the steering
+            raw_speed = min(raw_speed, self._cruise_speed * 0.4)
+            raw_steer = 0.0  # Go straight — don't follow the old curve!
+            
+            if self._lane_lost_frames >= 10:
+                # If lost for too long (0.5s), STOP for safety
+                raw_speed = 0.0
+                if self._lane_lost_frames == 10:
+                    log.error("LANE LOST for 10 frames — EMERGENCY STOP")
+            elif self._lane_lost_frames == self._lane_lost_threshold:
+                log.warning(f"Lane lost ≥{self._lane_lost_threshold} frames — slowing down and zeroing steering")
 
         # ═══════════════════════════════════════════════════════════════════
         # PHASE 2: Apply exponential smoothing to base command
