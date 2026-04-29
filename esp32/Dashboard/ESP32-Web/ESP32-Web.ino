@@ -40,22 +40,8 @@
 #include "WsHandler.h"
 #include "Navigation.h"
 
-// ─── Auto-mode watchdog ───────────────────────────────────────────────────────
-// Only fires if an RPi is actually registered AND has gone silent for >5 s.
-// If no RPi is connected at all, AUTO mode stays as the Dashboard set it.
-static void checkAutoWatchdog() {
-  if (driveMode == MODE_AUTO
-      && wsRpiClientId != 0          // only watch if RPi is registered
-      && (millis() - lastRpiCmd > 5000)) {
-    driveMode = MODE_MANUAL;
-    JoyData stop = {0.0f, 0.0f};
-    xQueueOverwrite(controlQueue, &stop);
-    if (ws.count() > 0)
-      ws.textAll("{\"type\":\"mode\",\"mode\":\"manual\",\"reason\":\"rpi_timeout\"}");
-    Serial.println("[MODE] MANUAL (RPi WiFi timeout watchdog)");
-    lastRpiCmd = millis();  // reset so it doesn't re-fire every loop tick
-  }
-}
+// Auto-mode watchdog REMOVED per user request. 
+// Mode will persist until changed manually via Dashboard or RPi command.
 
 // ─── setup() ─────────────────────────────────────────────────────────────────
 void setup() {
@@ -153,8 +139,7 @@ static unsigned long lastTelemetry = 0;
 void loop() {
   ws.cleanupClients();
 
-  // Auto-mode watchdog (RPi WiFi gone silent → revert to MANUAL)
-  checkAutoWatchdog();
+  // Auto-mode watchdog REMOVED
 
   // ── Telemetry broadcast at 10 Hz to ALL WebSocket clients ────────────────
   if (millis() - lastTelemetry > 100) {

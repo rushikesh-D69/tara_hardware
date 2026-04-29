@@ -89,15 +89,7 @@ void onWsEvent(AsyncWebSocket *srv, AsyncWebSocketClient *client,
     Serial.printf("[WS] Client #%u disconnected\n", cid);
     if (cid == wsRpiClientId) {
       wsRpiClientId = 0;
-      Serial.println("[WS] RPi client gone — immediate MANUAL fallback");
-      // Immediately stop & revert — don't wait for the watchdog timer
-      if (driveMode == MODE_AUTO) {
-        driveMode = MODE_MANUAL;
-        JoyData stop = {0.0f, 0.0f};
-        xQueueOverwrite(controlQueue, &stop);
-        if (ws.count() > 0)
-          ws.textAll("{\"type\":\"mode\",\"mode\":\"manual\",\"reason\":\"rpi_disconnected\"}");
-      }
+      Serial.println("[WS] RPi client disconnected (mode persists)");
     }
     return;
   }
