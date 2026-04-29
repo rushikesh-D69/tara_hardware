@@ -16,7 +16,7 @@ Usage:
   python3 main.py --video x.mp4   # Use video file instead of camera
 """
 # ── Suppress TensorFlow / oneDNN noise BEFORE any TF import ───────────────────
-# Must be set before 'import tensorflow' or 'import tflite_runtime' is called.
+# Must be set before 'import ai_edge_litert' or 'import tensorflow' is called.
 import os
 os.environ.setdefault("TF_ENABLE_ONEDNN_OPTS", "0")   # kill oneDNN warnings
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")    # suppress C++ TF logs

@@ -69,47 +69,20 @@ class PotholeDetector:
         log.info(f"PotholeDetector initialized: {mode}, input {self.input_size}x{self.input_size}")
 
     def load_model(self):
-        """Load the TFLite model.
-
-        Import priority (Python 3.12 / Trixie compatible):
-          1. ai-edge-litert   — Google's new name (Python 3.12+)
-             pip install ai-edge-litert
-          2. tflite-runtime   — legacy name (Python ≤3.11)
-             pip install tflite-runtime
-          3. tensorflow.lite  — full TF fallback (slow on RPi, last resort)
+        """Load the TFLite model using ai-edge-litert (Python 3.12+).
+        Install: pip install ai-edge-litert
         """
-        tflite = None
         try:
-            # Priority 1: ai-edge-litert (Python 3.12+, Raspberry Pi OS Trixie)
-            from ai_edge_litert import interpreter as _ai_edge
-            tflite = _ai_edge
-            log.info("TFLite backend: ai-edge-litert")
+            from ai_edge_litert.interpreter import Interpreter
         except ImportError:
-            pass
+            log.error("ai-edge-litert not installed. Run: pip install ai-edge-litert")
+            return False
 
-        if tflite is None:
-            try:
-                # Priority 2: legacy tflite-runtime (Python ≤3.11)
-                import tflite_runtime.interpreter as tflite
-                log.info("TFLite backend: tflite-runtime")
-            except ImportError:
-                pass
-
-        if tflite is None:
-            try:
-                # Priority 3: full TensorFlow (slow on RPi)
-                import tensorflow.lite as tflite
-                log.warning("TFLite backend: full TensorFlow — slow on RPi. "
-                            "Run: pip install ai-edge-litert")
-            except ImportError:
-                log.error("No TFLite backend found. "
-                          "Run: pip install ai-edge-litert")
-                return False
 
         try:
-            self._interpreter = tflite.Interpreter(
+            self._interpreter = Interpreter(
                 model_path=self.model_path,
-                num_threads=4,   # RPi 4B has 4 cores — use all of them
+                num_threads=4,
             )
             self._interpreter.allocate_tensors()
             self._input_details = self._interpreter.get_input_details()

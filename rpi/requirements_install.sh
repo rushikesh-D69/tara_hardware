@@ -57,7 +57,7 @@ pip install \
   tflite-runtime \
   websocket-client \
   pyserial \
-  firebase-admin
+  firebase-admin  
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Standard library modules (no install needed — built into Python)

@@ -106,42 +106,22 @@ class TrafficSignRecognizer:
                  f"vote_buffer=5, skip={self._frame_skip}")
 
     def load_model(self):
+        """Load the TFLite model using ai-edge-litert (Python 3.12+).
+        Install: pip install ai-edge-litert
         """
-        Import priority (Python 3.12 / Trixie compatible):
-          1. ai-edge-litert   — Google's new name (Python 3.12+)
-          2. tflite-runtime   — legacy name (Python ≤3.11)
-          3. tensorflow.lite  — full TF fallback (slow on RPi)
-        """
-        tflite = None
         try:
-            from ai_edge_litert import interpreter as _ai_edge
-            tflite = _ai_edge
-            log.info("TFLite backend: ai-edge-litert")
+            from ai_edge_litert.interpreter import Interpreter
         except ImportError:
-            pass
+            log.error("ai-edge-litert not installed. TSR disabled. "
+                      "Run: pip install ai-edge-litert")
+            return False
 
-        if tflite is None:
-            try:
-                import tflite_runtime.interpreter as tflite
-                log.info("TFLite backend: tflite-runtime")
-            except ImportError:
-                pass
-
-        if tflite is None:
-            try:
-                import tensorflow.lite as tflite
-                log.warning("TFLite backend: full TensorFlow — slow on RPi. "
-                            "Run: pip install ai-edge-litert")
-            except ImportError:
-                log.error("Neither ai-edge-litert nor tflite-runtime nor tensorflow found! "
-                          "TSR will be disabled. Run: pip install ai-edge-litert")
-                return False
 
         model_path = self.cfg.TSR_MODEL_PATH
         try:
-            self._interpreter = tflite.Interpreter(
+            self._interpreter = Interpreter(
                 model_path=model_path,
-                num_threads=4,  # RPi 4B has 4 cores — use them all
+                num_threads=4,
             )
             self._interpreter.allocate_tensors()
 
