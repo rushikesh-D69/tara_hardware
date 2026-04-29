@@ -178,8 +178,8 @@ POTHOLE_STEER_MAGNITUDE = 60  # PWM offset for avoidance
 ACC_EMERGENCY_STOP_DIST = 10   # cm — slam brakes
 ACC_MIN_FOLLOW_DIST = 25       # cm — slow down significantly
 ACC_CRUISE_DIST = 50           # cm — maintain speed
-ACC_DEFAULT_SPEED = 160        # PWM — lowered for stable testing (ESP32 floor is ~140-150)
-ACC_MAX_SPEED = 180            # PWM — absolute max speed
+ACC_DEFAULT_SPEED = 145        # PWM — set to slow crawl for debugging (ESP32 floor is ~135)
+ACC_MAX_SPEED = 160            # PWM — absolute max speed for testing
 
 # ACC PID removed — speed control is handled by the ESP32 motor driver.
 # ACC now outputs a normalized speed setpoint (0.0–1.0) → ESP32 jd.y.
