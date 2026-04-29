@@ -239,9 +239,6 @@ class TARAAdas:
             self.ws.send_command(command)
 
 
-        # ── Cloud + local data logging (async, non-blocking) ──────────
-        self._log_data(frame, command)
-
         # ── Debug visualization ────────────────────────────────────────
         if self.args.debug:
             self._show_debug(frame, command)
