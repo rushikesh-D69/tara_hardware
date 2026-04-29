@@ -55,16 +55,11 @@ void motorTask(void *pvParameters) {
     posY = ekf_y;
     distTraveled += fabsf(v_linear * dt);
 
-    // ── Watchdog / safety gates ─────────────────────────────────────────────
-    // MANUAL: kill if Dashboard goes silent >2 s (WS heartbeat expected).
-    // AUTO:   kill if RPi goes silent >1.5 s (second-layer guard; loop() also checks).
-    bool manualWdFired = (driveMode == MODE_MANUAL) && (millis() - lastWsMessage > 2000);
-    bool autoWdFired   = (driveMode == MODE_AUTO)   && (millis() - lastRpiCmd   > 1500);
-
-    // Battery voltage read here (was in ultrasonicTask)
+    // ── Watchdog / safety gates REMOVED ─────────────────────────────────────
+    // Battery voltage read here
     batVoltage = (analogRead(BAT_PIN) / 4095.0f) * 3.3f * (10.0f + 3.3f) / 3.3f;
 
-    if (eStopActive || manualWdFired || autoWdFired) {
+    if (eStopActive) {
       currentL_PWM = 0;
       currentR_PWM = 0;
       pidL.reset();

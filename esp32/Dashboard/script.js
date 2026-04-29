@@ -268,6 +268,15 @@ function handleJsonMessage(msg) {
         }
         // Suppress noisy mode-confirmed spam in log — only log changes
     }
+
+    // Echo of RPi commands (from ESP32 broadcast)
+    if (msg.type === 'rpi_cmd') {
+        const now = Date.now();
+        if (!window._lastRpiLog || (now - window._lastRpiLog > 500)) {
+            cmdLog('rpi', `RPi AUTO: steer=${msg.x.toFixed(3)}, speed=${msg.y.toFixed(3)}`);
+            window._lastRpiLog = now;
+        }
+    }
 }
 
 

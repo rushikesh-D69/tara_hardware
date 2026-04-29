@@ -194,7 +194,12 @@ void onWsEvent(AsyncWebSocket *srv, AsyncWebSocketClient *client,
         constrain((float)doc["y"],  0.0f,  1.0f),
       };
       xQueueOverwrite(controlQueue, &jd);
-      lastRpiCmd = millis();   // explicit update (already done above, belt+suspenders)
+      lastRpiCmd = millis();
+
+      // Echo command to Dashboard so user can see Pi's decisions
+      char echo[128];
+      snprintf(echo, sizeof(echo), "{\"type\":\"rpi_cmd\",\"x\":%.3f,\"y\":%.3f}", jd.x, jd.y);
+      ws.textAll(echo);
       return;
     }
     // Any other RPi message not handled above → ignore
