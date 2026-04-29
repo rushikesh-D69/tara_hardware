@@ -1495,15 +1495,13 @@ input[type="range"]::-moz-range-thumb {
 .log-window {
     height: 160px;              /* fixed — never changes */
     max-height: 160px;
-    width: 100%;                /* lock to panel width — never grows */
+    width: 100%;
     box-sizing: border-box;
     flex-shrink: 0;
-    overflow-y: auto;
-    overflow-x: hidden;         /* clip anything that escapes */
+    overflow-y: auto;           /* scroll vertically when full */
+    overflow-x: hidden;
     padding: 8px 14px;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
+    display: block;             /* NOT flex — block lets children keep natural height */
     background: #070b14;
     font-family: var(--font-mono);
     font-size: 0.72rem;
@@ -1525,11 +1523,14 @@ input[type="range"]::-moz-range-thumb {
 /* ── Individual log entry ── */
 .log-entry {
     display: block;
-    width: 100%;                /* never wider than the window */
+    width: 100%;
     box-sizing: border-box;
-    white-space: nowrap;        /* single line */
-    overflow: hidden;           /* clip overflow — don't push container */
-    text-overflow: ellipsis;    /* … on long lines */
+    flex-shrink: 0;             /* never compress — let parent scroll */
+    min-height: 1.2em;          /* each line always takes its natural height */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding: 1px 0;
     animation: log-fadein 0.15s ease forwards;
 }
 
