@@ -156,10 +156,6 @@ class TARAAdas:
         self.log.info("=" * 50)
         self.log.info("  TARA ADAS — RUNNING")
         mode_parts = ["Edge ML"]
-        if self.cloud and self.cloud.is_enabled:
-            mode_parts.append("Cloud logging")
-        if self.local_recorder and self.local_recorder.is_enabled:
-            mode_parts.append("Local recording")
         if self.ws:
             mode_parts.append(f"ESP32 WiFi ({config.ESP32_HOST})")
         self.log.info(f"  Mode: {' + '.join(mode_parts)}")
