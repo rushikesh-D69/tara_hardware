@@ -1495,9 +1495,11 @@ input[type="range"]::-moz-range-thumb {
 .log-window {
     height: 160px;              /* fixed — never changes */
     max-height: 160px;
+    width: 100%;                /* lock to panel width — never grows */
+    box-sizing: border-box;
     flex-shrink: 0;
     overflow-y: auto;
-    overflow-x: hidden;
+    overflow-x: hidden;         /* clip anything that escapes */
     padding: 8px 14px;
     display: flex;
     flex-direction: column;
@@ -1523,7 +1525,11 @@ input[type="range"]::-moz-range-thumb {
 /* ── Individual log entry ── */
 .log-entry {
     display: block;
-    white-space: pre;
+    width: 100%;                /* never wider than the window */
+    box-sizing: border-box;
+    white-space: nowrap;        /* single line */
+    overflow: hidden;           /* clip overflow — don't push container */
+    text-overflow: ellipsis;    /* … on long lines */
     animation: log-fadein 0.15s ease forwards;
 }
 
