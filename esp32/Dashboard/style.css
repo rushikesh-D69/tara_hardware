@@ -1425,9 +1425,11 @@ input[type="range"]::-moz-range-thumb {
     grid-column: 1 / -1;        /* full width across all columns */
     display: flex;
     flex-direction: column;
-    gap: 0;
+    max-height: 220px;          /* hard cap — never grows beyond this */
+    height: 220px;
+    min-height: 0;              /* prevent flex blowout */
     padding: 0;
-    overflow: hidden;
+    overflow: hidden;           /* clip anything that escapes */
 }
 
 .log-header {
@@ -1491,14 +1493,16 @@ input[type="range"]::-moz-range-thumb {
 
 /* ── Scrollable log window ── */
 .log-window {
-    flex: 1;
-    height: 180px;               /* compact — shows ~8-10 lines */
+    height: 160px;              /* fixed — never changes */
+    max-height: 160px;
+    flex-shrink: 0;
     overflow-y: auto;
-    padding: 10px 14px;
+    overflow-x: hidden;
+    padding: 8px 14px;
     display: flex;
     flex-direction: column;
     gap: 2px;
-    background: #070b14;          /* darker than panel bg */
+    background: #070b14;
     font-family: var(--font-mono);
     font-size: 0.72rem;
     line-height: 1.7;
