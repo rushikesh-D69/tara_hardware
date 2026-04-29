@@ -10,8 +10,9 @@ const char *password = "tara@579";
 // Network
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
-unsigned long lastWsMessage = 0;
-unsigned long lastSerialCmd = 0;
+uint32_t wsRpiClientId = 0;        // 0 = no RPi connected yet
+unsigned long lastWsMessage = 0;   // last Dashboard heartbeat/cmd
+unsigned long lastRpiCmd    = 0;   // last RPi auto_cmd — AUTO watchdog
 
 // Encoders
 volatile long pulseLeft = 0;

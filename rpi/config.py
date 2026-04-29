@@ -24,11 +24,13 @@ PROC_HEIGHT = 240
 # ─── Serial Communication (RPi ↔ ESP32) ──────────────────────────────────────
 # ESP32 plugged into RPi USB — appears as /dev/ttyUSB0 (CP2102/CH340) or
 # /dev/ttyACM0 (native USB-CDC). Check with: ls /dev/tty*
-SERIAL_PORT = "/dev/ttyUSB0"
-BAUD_RATE = 115200
-SERIAL_TIMEOUT = 0.01         # Non-blocking reads (10ms)
-COMMAND_INTERVAL = 0.05       # Send commands every 50ms (20Hz)
-WATCHDOG_TIMEOUT_MS = 1500    # ESP32 motor watchdog: 1500ms in AUTO mode
+# ─── ESP32 WiFi / WebSocket ──────────────────────────────────────────────────────────────────────────────────────
+# All three nodes (ESP32, RPi, Dashboard PC) on the same WiFi network.
+# The RPi connects to the ESP32’s built-in WebSocket server.
+ESP32_HOST    = "192.168.1.100"   # ← SET THIS to your ESP32’s IP address
+ESP32_WS_PORT = 80                # HTTP/WS port (ESP32 AsyncWebServer default)
+ESP32_WS_PATH = "/ws"             # WebSocket endpoint path
+COMMAND_INTERVAL = 0.05           # Target send rate: 50 ms = 20 Hz
 
 # ─── Lane Detection (LDW + LKA) ──────────────────────────────────────────────
 # Tuned for INDOOR track: black chart paper floor, white insulation tape lanes.

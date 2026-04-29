@@ -57,6 +57,68 @@ const statusWifiIcon = document.getElementById('status-wifi-icon');
 const statusBattery = document.getElementById('status-battery');
 const statusMotors = document.getElementById('status-motors');
 
+// --- Panel 7: Command Log ---
+const cmdLogEl    = document.getElementById('cmd-log');
+const btnLogClear = document.getElementById('btn-log-clear');
+
+
+/* =========================================
+   2a. COMMAND LOG UTILITY
+   ========================================= */
+const MAX_LOG_ENTRIES = 120;   // keep last N lines before pruning
+
+/**
+ * Append a line to the command log window.
+ * @param {'tx'|'rx'|'sys'|'err'|'rpi'} dir  - direction / type
+ * @param {string} text                       - message body
+ */
+function cmdLog(dir, text) {
+    if (!cmdLogEl) return;
+
+    const now = new Date();
+    const ts  = `${String(now.getHours()).padStart(2,'0')}:` +
+                `${String(now.getMinutes()).padStart(2,'0')}:` +
+                `${String(now.getSeconds()).padStart(2,'0')}.` +
+                `${String(now.getMilliseconds()).padStart(3,'0')}`;
+
+    // Prefix arrows by direction
+    const arrow = { tx:'→', rx:'←', sys:'⬡', err:'✗', rpi:'⇢' }[dir] || '·';
+
+    const span = document.createElement('span');
+    span.className = `log-entry log-${dir}`;
+    span.innerHTML = `<span class="log-ts">${ts}</span>${arrow} ${escapeHtml(text)}`;
+
+    // Dim entries older than 20 lines
+    const entries = cmdLogEl.querySelectorAll('.log-entry');
+    if (entries.length >= 20) {
+        entries.forEach((e, i) => {
+            if (i < entries.length - 19) e.classList.add('log-old');
+        });
+    }
+
+    cmdLogEl.appendChild(span);
+
+    // Prune if over cap
+    while (cmdLogEl.childElementCount > MAX_LOG_ENTRIES) {
+        cmdLogEl.removeChild(cmdLogEl.firstElementChild);
+    }
+
+    // Auto-scroll to bottom
+    cmdLogEl.scrollTop = cmdLogEl.scrollHeight;
+}
+
+function escapeHtml(s) {
+    return String(s)
+        .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+if (btnLogClear) {
+    btnLogClear.addEventListener('click', () => {
+        cmdLogEl.innerHTML = '';
+        cmdLog('sys', 'Log cleared');
+    });
+}
 
 /* =========================================
    2. WEBSOCKET MANAGEMENT
@@ -74,6 +136,7 @@ function connectWebSocket() {
         statusWifi.textContent = "Online";
         statusWifi.className = "status-val connected-text";
         statusWifiIcon.classList.add('online');
+        cmdLog('sys', `Connected to ESP32 at ${TARA_IP}`);
         console.log("[TÁRA] Connected to ESP32");
     };
 
@@ -84,11 +147,13 @@ function connectWebSocket() {
         statusWifi.textContent = "Offline";
         statusWifi.className = "status-val disconnected-text";
         statusWifiIcon.classList.remove('online');
+        cmdLog('err', 'WebSocket closed — reconnecting in 2 s…');
         console.log("[TÁRA] Disconnected. Reconnecting in 2s...");
         setTimeout(connectWebSocket, 2000);
     };
 
     ws.onerror = (error) => {
+        cmdLog('err', `WebSocket error: ${error.message || 'unknown'}`);
         console.error("[TÁRA] WebSocket Error:", error);
         ws.close();
     };
@@ -96,9 +161,22 @@ function connectWebSocket() {
     ws.onmessage = (event) => {
         const raw = event.data.trim();
         if (raw.startsWith('SEN:')) {
+            // Log SEN packets condensed (every 10th to avoid flooding)
+            if (!connectWebSocket._senCount) connectWebSocket._senCount = 0;
+            connectWebSocket._senCount++;
+            if (connectWebSocket._senCount % 10 === 1) {
+                // Show v_linear and driveMode summary only
+                const f = raw.slice(4).split(',');
+                const modeStr = (f[20] === '1') ? 'AUTO' : 'MANUAL';
+                cmdLog('rx', `SEN: v=${parseFloat(f[0]).toFixed(2)}m/s yaw=${parseFloat(f[2]).toFixed(1)}° mode=${modeStr}`);
+            }
             handleTelemetry(raw);
         } else if (raw.startsWith('{')) {
-            handleJsonMessage(JSON.parse(raw));
+            const obj = JSON.parse(raw);
+            cmdLog('rx', JSON.stringify(obj));
+            handleJsonMessage(obj);
+        } else {
+            cmdLog('rx', raw);
         }
     };
 }
@@ -151,10 +229,14 @@ function handleJsonMessage(msg) {
         const isAuto = (msg.mode === 'auto');
         syncModeUI(isAuto);
         if (msg.reason === 'rpi_timeout') {
+            cmdLog('err', `ESP32: RPi timeout → fallback to MANUAL`);
             console.warn('[TÁRA] RPi went silent — forced back to MANUAL');
+        } else {
+            cmdLog('sys', `ESP32 mode confirmed: ${msg.mode.toUpperCase()}${msg.reason ? ' (' + msg.reason + ')' : ''}`);
         }
     }
 }
+
 
 function handleTelemetry(raw) {
     // SEN: packet — fields separated by commas.
@@ -401,12 +483,37 @@ btnEstop.addEventListener('click', () => {
 /* =========================================
    7. DATA TRANSMISSION
    ========================================= */
+let _txDriveCount = 0;
+
 function sendCommand(cmd) {
     if (isConnected && ws.readyState === WebSocket.OPEN) {
+        let payload;
         if (typeof cmd === 'string') {
-            ws.send(cmd);
+            payload = cmd;
+            ws.send(payload);
         } else {
-            ws.send(JSON.stringify(cmd));
+            payload = JSON.stringify(cmd);
+            ws.send(payload);
+        }
+
+        // ── Log with smart filtering ─────────────────────────────────────
+        const type = (typeof cmd === 'object') ? cmd.type : 'raw';
+
+        if (type === 'heartbeat') {
+            // suppress — too noisy
+        } else if (type === 'raw' || payload.startsWith('CMD:')) {
+            // Joystick drive: show every 20th (1 Hz)
+            _txDriveCount++;
+            if (_txDriveCount % 20 === 1) {
+                cmdLog('tx', `drive ${payload}`);
+            }
+        } else if (type === 'estop') {
+            cmdLog(cmd.state ? 'err' : 'sys',
+                   `ESTOP ${cmd.state ? 'ENGAGED ⚠' : 'RELEASED'}`);
+        } else if (type === 'set_mode') {
+            cmdLog('sys', `↻ mode → ${cmd.mode.toUpperCase()}`);
+        } else {
+            cmdLog('tx', payload);
         }
     }
 }

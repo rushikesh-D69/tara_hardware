@@ -221,7 +221,27 @@
                 </div>
             </div>
 
-        <!-- Panel 7: Autonomous Navigator (full width) -->
+        </section>
+
+        <!-- Panel 7: Command Log -->
+        <section class="panel log-panel" id="panel-log">
+            <div class="log-header">
+                <h2>Command Log</h2>
+                <div class="log-header-right">
+                    <span class="log-legend">
+                        <span class="log-dot log-dot-tx">●</span> TX
+                        <span class="log-dot log-dot-rx">●</span> RX
+                        <span class="log-dot log-dot-sys">●</span> SYS
+                    </span>
+                    <button id="btn-log-clear" class="btn-log-clear" title="Clear log">⌫ Clear</button>
+                </div>
+            </div>
+            <div class="log-window" id="cmd-log">
+                <span class="log-entry log-sys">[system] Dashboard ready — waiting for ESP32…</span>
+            </div>
+        </section>
+
+        <!-- Panel 8: Autonomous Navigator (full width) -->
         <section class="panel auto-panel" id="panel-autonomous">
 
             <!-- Header: title + MANUAL/AUTO toggle -->

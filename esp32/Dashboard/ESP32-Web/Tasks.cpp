@@ -4,56 +4,9 @@
 #include "Globals.h"
 #include "Navigation.h"
 
-void ultrasonicTask(void *pvParameters) {
-  // Median-of-3 buffer for noise reduction
-  float readings[3] = {999.0f, 999.0f, 999.0f};
-  int readIdx = 0;
+// ultrasonicTask REMOVED — no ultrasonic sensor in this build.
+// Battery voltage is still read in motorTask below.
 
-  while (true) {
-    // Trigger pulse
-    digitalWrite(TRIG_PIN, LOW);
-    delayMicroseconds(2);
-    digitalWrite(TRIG_PIN, HIGH);
-    delayMicroseconds(10);
-    digitalWrite(TRIG_PIN, LOW);
-
-    // Read echo — timeout at 30ms (~510cm max range, well beyond 400cm useful)
-    unsigned long duration = pulseIn(ECHO_PIN, HIGH, 30000);
-
-    if (duration > 0) {
-      float rawDist = (duration * 0.0343f) / 2.0f;  // speed of sound ≈ 343 m/s
-
-      // Outlier rejection: ignore readings outside 2–400 cm
-      if (rawDist >= 2.0f && rawDist <= 400.0f) {
-        readings[readIdx] = rawDist;
-      } else {
-        readings[readIdx] = 999.0f;  // out-of-range sentinel
-      }
-    } else {
-      readings[readIdx] = 999.0f;  // timeout = no echo
-    }
-    readIdx = (readIdx + 1) % 3;
-
-    // Median-of-3 filter: sort three values, take middle
-    float a = readings[0], b = readings[1], c = readings[2];
-    float median;
-    if (a <= b) {
-      if (b <= c)      median = b;     // a <= b <= c
-      else if (a <= c) median = c;     // a <= c < b
-      else             median = a;     // c < a <= b
-    } else {
-      if (a <= c)      median = a;     // b < a <= c
-      else if (b <= c) median = c;     // b <= c < a
-      else             median = b;     // c < b < a (b > a is impossible here, so b)
-    }
-    distanceCm = median;
-
-    // Battery voltage (always read)
-    batVoltage = (analogRead(BAT_PIN) / 4095.0f) * 3.3f * (10.0f + 3.3f) / 3.3f;
-
-    vTaskDelay(60 / portTICK_PERIOD_MS);  // ~16 Hz — faster than 100ms for better ACC
-  }
-}
 
 void motorTask(void *pvParameters) {
   JoyData jd = {0.0f, 0.0f};
@@ -103,14 +56,15 @@ void motorTask(void *pvParameters) {
     distTraveled += fabsf(v_linear * dt);
 
     // ── Watchdog / safety gates ─────────────────────────────────────────────
-    // In MANUAL: kill if dashboard goes silent for >2 s (WS heartbeat expected).
-    // In AUTO:   kill if RPi goes silent for >1.5 s (handled in loop() watchdog,
-    //            but also enforce here as a second layer).
+    // MANUAL: kill if Dashboard goes silent >2 s (WS heartbeat expected).
+    // AUTO:   kill if RPi goes silent >1.5 s (second-layer guard; loop() also checks).
     bool manualWdFired = (driveMode == MODE_MANUAL) && (millis() - lastWsMessage > 2000);
-    bool autoWdFired   = (driveMode == MODE_AUTO)   && (millis() - lastSerialCmd > 1500);
-    bool obstacle      = (distanceCm < AUTO_STOP_DIST);
+    bool autoWdFired   = (driveMode == MODE_AUTO)   && (millis() - lastRpiCmd   > 1500);
 
-    if (eStopActive || manualWdFired || autoWdFired || obstacle) {
+    // Battery voltage read here (was in ultrasonicTask)
+    batVoltage = (analogRead(BAT_PIN) / 4095.0f) * 3.3f * (10.0f + 3.3f) / 3.3f;
+
+    if (eStopActive || manualWdFired || autoWdFired) {
       currentL_PWM = 0;
       currentR_PWM = 0;
       pidL.reset();

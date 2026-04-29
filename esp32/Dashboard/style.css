@@ -1419,3 +1419,129 @@ input[type="range"]::-moz-range-thumb {
     }
 }
 
+/* ─── COMMAND LOG PANEL ─────────────────────────────────────────────────────── */
+
+.log-panel {
+    grid-column: 1 / -1;        /* full width across all columns */
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    padding: 0;
+    overflow: hidden;
+}
+
+.log-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px 10px;
+    border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
+}
+
+.log-header h2 {
+    font-size: 0.85rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin: 0;
+}
+
+.log-header-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.log-legend {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.72rem;
+    font-family: var(--font-mono);
+    color: var(--text-dim);
+    user-select: none;
+}
+
+.log-dot {
+    font-size: 0.65rem;
+}
+.log-dot-tx  { color: #38bdf8; }   /* blue  — Dashboard → ESP32 */
+.log-dot-rx  { color: #10b981; }   /* green — ESP32 → Dashboard */
+.log-dot-sys { color: #f59e0b; }   /* amber — system events     */
+
+.btn-log-clear {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-dim);
+    font-size: 0.72rem;
+    font-family: var(--font-mono);
+    padding: 3px 10px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    line-height: 1.6;
+}
+.btn-log-clear:hover {
+    border-color: var(--border-accent);
+    color: var(--text-muted);
+    background: rgba(56,189,248,0.05);
+}
+
+/* ── Scrollable log window ── */
+.log-window {
+    flex: 1;
+    height: 180px;               /* compact — shows ~8-10 lines */
+    overflow-y: auto;
+    padding: 10px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    background: #070b14;          /* darker than panel bg */
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    line-height: 1.7;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(56,189,248,0.2) transparent;
+}
+.log-window::-webkit-scrollbar {
+    width: 4px;
+}
+.log-window::-webkit-scrollbar-track {
+    background: transparent;
+}
+.log-window::-webkit-scrollbar-thumb {
+    background: rgba(56,189,248,0.2);
+    border-radius: 2px;
+}
+
+/* ── Individual log entry ── */
+.log-entry {
+    display: block;
+    white-space: pre;
+    animation: log-fadein 0.15s ease forwards;
+}
+
+@keyframes log-fadein {
+    from { opacity: 0; transform: translateY(3px); }
+    to   { opacity: 1; transform: translateY(0);   }
+}
+
+/* Direction colours */
+.log-tx  { color: #38bdf8; }   /* sent command — blue  */
+.log-rx  { color: #10b981; }   /* received data — green */
+.log-sys { color: #f59e0b; }   /* system event — amber  */
+.log-err { color: #ef4444; }   /* error — red           */
+.log-rpi { color: #a78bfa; }   /* RPi auto_cmd — purple */
+
+/* Dim the timestamp prefix */
+.log-entry .log-ts {
+    color: var(--text-dim);
+    margin-right: 6px;
+}
+
+/* Auto-fade old entries */
+.log-entry.log-old {
+    opacity: 0.45;
+}

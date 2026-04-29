@@ -8,9 +8,9 @@
 #include "Config.h"
 
 // ─── Drive Mode ───────────────────────────────────────────────────────────────
-// MANUAL  : all movement commands come from the WebSocket dashboard
-// AUTO    : movement commands come from RPi via Serial (CMD:x,y,flags)
-//           The dashboard can still read telemetry but joystick is ignored.
+// MANUAL  : movement commands come from the Dashboard WebSocket client.
+// AUTO    : movement commands come from RPi WebSocket client (auto_cmd JSON).
+//           Dashboard can still read telemetry but joystick is ignored.
 enum DriveMode { MODE_MANUAL, MODE_AUTO };
 extern volatile DriveMode driveMode;
 
@@ -19,9 +19,15 @@ extern const char *ssid;
 extern const char *password;
 
 extern AsyncWebServer server;
-extern AsyncWebSocket ws;
-extern unsigned long lastWsMessage;   // last ANY message from WS client (heartbeat / cmd)
-extern unsigned long lastSerialCmd;   // last CMD: received from RPi — for Auto watchdog
+extern AsyncWebSocket  ws;            // single WS endpoint — all clients connect here
+
+// ─── WebSocket client tracking ───────────────────────────────────────────────
+// We distinguish the RPi client from Dashboard clients by a registration
+// handshake: RPi sends {"type":"register","role":"rpi"} immediately on connect.
+// Until registered, every new client is treated as Dashboard.
+extern uint32_t wsRpiClientId;        // client ID of the RPi WS connection (0 = none)
+extern unsigned long lastWsMessage;   // last message from any Dashboard client
+extern unsigned long lastRpiCmd;      // last auto_cmd from RPi — AUTO watchdog timer
 
 // Encoders
 extern volatile long pulseLeft;

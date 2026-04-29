@@ -40,7 +40,7 @@ from adas.pothole_detection import PotholeDetector
 from adas.adaptive_cruise import AdaptiveCruiseControl
 from adas.traffic_light import TrafficLightDetector
 from adas.decision_manager import DecisionManager
-from comms.serial_bridge import SerialBridge
+from comms.ws_bridge import WsBridge          # WiFi WebSocket — replaces SerialBridge
 from cloud.firebase_logger import FirebaseLogger, LocalSessionRecorder
 from utils.fps_counter import FPSCounter
 from utils.logger import setup_logger, get_logger
@@ -50,14 +50,14 @@ def parse_args():
     parser = argparse.ArgumentParser(description="TARA ADAS — RPi Pipeline")
     parser.add_argument("--debug", action="store_true",
                         help="Show OpenCV debug window")
-    parser.add_argument("--no-serial", action="store_true",
-                        help="Run without ESP32 serial connection")
+    parser.add_argument("--no-wifi", action="store_true",
+                        help="Run without ESP32 WiFi connection (vision-only)")
     parser.add_argument("--no-cloud", action="store_true",
                         help="Disable cloud logging (fully offline)")
     parser.add_argument("--video", type=str, default=None,
                         help="Use video file instead of live camera")
     parser.add_argument("--log-level", type=str,
-                        default=config.LOG_LEVEL,          # reads from config.py
+                        default=config.LOG_LEVEL,
                         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
                         help="Logging level")
     return parser.parse_args()
@@ -109,13 +109,13 @@ class TARAAdas:
         self.tl_detector = TrafficLightDetector(config)
         self.decision_manager = DecisionManager(config)
 
-        # Communication
-        self.serial = None
-        if not args.no_serial:
-            self.serial = SerialBridge(
-                port=config.SERIAL_PORT,
-                baud=config.BAUD_RATE,
-                timeout=config.SERIAL_TIMEOUT,
+        # Communication — WiFi WebSocket to ESP32
+        self.ws = None
+        if not args.no_wifi:
+            self.ws = WsBridge(
+                host=config.ESP32_HOST,
+                port=config.ESP32_WS_PORT,
+                path=config.ESP32_WS_PATH,
             )
 
         # Cloud logger (async, non-blocking)
@@ -159,11 +159,11 @@ class TARAAdas:
         if not pothole_ok:
             self.log.warning("Pothole model not loaded — pothole detection disabled")
 
-        # Connect to ESP32
-        if self.serial:
-            if not self.serial.connect():
-                self.log.warning("ESP32 not connected — running in vision-only mode")
-                self.serial = None
+        # Connect to ESP32 via WiFi WebSocket
+        if self.ws:
+            if not self.ws.connect():
+                self.log.warning("ESP32 WiFi not connected — running in vision-only mode")
+                self.ws = None
 
         # Start cloud logger
         if self.cloud:
@@ -183,8 +183,8 @@ class TARAAdas:
             mode_parts.append("Cloud logging")
         if self.local_recorder and self.local_recorder.is_enabled:
             mode_parts.append("Local recording")
-        if self.serial:
-            mode_parts.append("ESP32 connected")
+        if self.ws:
+            mode_parts.append(f"ESP32 WiFi ({config.ESP32_HOST})")
         self.log.info(f"  Mode: {' + '.join(mode_parts)}")
         self.log.info("=" * 50)
 
@@ -215,50 +215,41 @@ class TARAAdas:
         self.fps.tick()
         cycle_pos = self.frame_num % 4  # 4-frame cycle
 
-        # Cache sensor data ONCE per frame — all modules see the same snapshot
-        sensor_data = self.serial.get_sensor_data() if self.serial else None
-
-        # ── Always run: Lane Detection ─────────────────────────────────
+        # ── Always run: Lane Detection ────────────────────────────────────
         t = self.fps.start_module("Lane")
         self._last_lane = self.lane_detector.detect(frame, debug=self.args.debug)
         self.fps.stop_module(t)
 
-        # ── Scheduled: TSR (frame 1, 5, 9, ...) ───────────────────────
+        # ── Scheduled: TSR (frame 1, 5, 9, ...) ──────────────────────────
         if cycle_pos == config.SCHEDULE_TSR_OFFSET % 4:
             t = self.fps.start_module("TSR")
             self._last_tsr = self.tsr.detect(frame)
             self.fps.stop_module(t)
 
-            # Update ACC with TSR speed limit
-            if self._last_tsr and self._last_tsr.sign_detected and self._last_tsr.speed_limit is not None:
+            # Update ACC with TSR speed limit (already normalized 0.0–1.0)
+            if (self._last_tsr and self._last_tsr.sign_detected
+                    and self._last_tsr.speed_limit is not None):
                 self.acc.set_speed_limit(self._last_tsr.speed_limit)
 
-        # ── Scheduled: Pothole (frame 3, 7, 11, ...) ──────────────────
+        # ── Scheduled: Pothole (frame 3, 7, 11, ...) ─────────────────────
         if cycle_pos == config.SCHEDULE_POTHOLE_OFFSET % 4:
             t = self.fps.start_module("Pothole")
             self._last_pothole = self.pothole_detector.detect(frame)
             self.fps.stop_module(t)
 
-        # ── Scheduled: ACC Sensor Read (frames 0, 2) ──────────────────
+        # ── Scheduled: ACC speed policy (every 2nd frame) ───────────────────
         if cycle_pos % config.SCHEDULE_ACC_EVERY == 0:
             t = self.fps.start_module("ACC")
-            if sensor_data:
-                self._last_acc = self.acc.update(sensor_data)
-            else:
-                # No sensor data — use safe defaults
-                self._last_acc = self.acc.update({
-                    'distance_cm': 999, 'left_enc': 0, 'right_enc': 0,
-                    'v_linear': 0.0,
-                })
+            self._last_acc = self.acc.update()   # no sensor data needed
             self.fps.stop_module(t)
 
-        # ── Scheduled: Traffic Light (frames 0, 2) ─────────────────────
+        # ── Scheduled: Traffic Light (frames 0, 2) ─────────────────────────
         if cycle_pos % 2 == 0:
             t = self.fps.start_module("TLR")
             self._last_tl = self.tl_detector.detect(frame)
             self.fps.stop_module(t)
 
-        # ── Always run: Decision Manager ───────────────────────────────
+        # ── Always run: Decision Manager ──────────────────────────────────
         t = self.fps.start_module("Decision")
         command = self.decision_manager.update(
             lane_result=self._last_lane,
@@ -266,13 +257,14 @@ class TARAAdas:
             pothole_result=self._last_pothole,
             acc_result=self._last_acc,
             tl_result=self._last_tl,
-            sensor_data=sensor_data,
+            # no sensor_data — ultrasonic removed
         )
         self.fps.stop_module(t)
 
-        # ── Send command to ESP32 ──────────────────────────────────────
-        if self.serial:
-            self.serial.send_command(command)
+        if self.ws:
+            # ── Send command to ESP32 via WiFi WebSocket ─────────────────
+            self.ws.send_command(command)
+
 
         # ── Cloud + local data logging (async, non-blocking) ──────────
         self._log_data(frame, command)
@@ -433,10 +425,10 @@ class TARAAdas:
         self.log.info("Stopping TARA ADAS...")
         self.running = False
 
-        # Send stop command to ESP32
-        if self.serial:
-            self.serial.send_stop()
-            self.serial.disconnect()
+        # Send stop command to ESP32 via WiFi
+        if self.ws:
+            self.ws.send_stop()
+            self.ws.disconnect()
 
         # Stop cloud logger (flushes remaining uploads)
         if self.cloud:

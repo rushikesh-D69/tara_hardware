@@ -13,13 +13,12 @@ All PID loops removed from this side — the ESP32 handles motor control.
 The RPi only decides WHAT direction/speed to aim for.
 
 Priority (highest → lowest):
-  1. Emergency Stop (ACC ultrasonic)         — bypasses smoothing
-  2. Traffic Light RED/YELLOW                — bypasses smoothing
-  3. Pothole Avoidance (override steering)   — blended release
-  4. TSR Speed Cap                           — with auto-expiry
-  5. ACC Throttle                            — proportional to distance
-  6. Lane Keeping Assist (steering)          — with confidence weighting
-  7. LDW Warning (flag only)
+  1. Traffic Light RED/YELLOW                — bypasses smoothing
+  2. Pothole Avoidance (override steering)   — blended release
+  3. TSR Speed Cap                           — with auto-expiry
+  4. ACC Throttle (cruise speed)             — vision-only, no distance
+  5. Lane Keeping Assist (steering)          — with confidence weighting
+  6. LDW Warning (flag only)
 """
 import time
 from utils.logger import get_logger
@@ -32,7 +31,7 @@ class Command:
     Normalized command for the ESP32.
     steer_x:  -1.0 (hard left) … +1.0 (hard right)  → jd.x
     speed_y:   0.0 (stop)      … +1.0 (full speed)   → jd.y
-    flags:    bit-field (see below)
+    flags:    bit-field
     """
 
     def __init__(self):
@@ -42,11 +41,10 @@ class Command:
         # Flag bits:
         #   0x01 = LDW warning
         #   0x02 = Pothole detected
-        #   0x04 = Emergency stop
         #   0x08 = TSR sign detected
         #   0x10 = Traffic light RED/YELLOW
 
-    # compat shims so existing log/print code still compiles
+    # compat shims so existing log/print code still works
     @property
     def steering(self):
         return round(self.steer_x * 100)   # -100 … 100 int view
@@ -55,12 +53,19 @@ class Command:
     def speed(self):
         return round(self.speed_y * 255)   # 0 … 255 int view
 
+    def to_ws(self):
+        """Serialize for ESP32 auto_cmd WebSocket message."""
+        return {
+            "type": "auto_cmd",
+            "x":    round(max(-1.0, min(1.0, self.steer_x)), 4),
+            "y":    round(max( 0.0, min(1.0, self.speed_y)), 4),
+        }
+
+    # Legacy: kept for backward-compat with logging code
     def to_serial(self):
-        """Serialize to CSV for ESP32 serialParserTask."""
         x = round(max(-1.0, min(1.0, self.steer_x)), 4)
-        y = round(max(0.0,  min(1.0, self.speed_y)), 4)
-        flags = int(self.flags)
-        return f"CMD:{x},{y},{flags}"
+        y = round(max( 0.0, min(1.0, self.speed_y)), 4)
+        return f"CMD:{x},{y},{int(self.flags)}"
 
     def __repr__(self):
         return (f"Command(steer={self.steer_x:.3f}, "
@@ -136,16 +141,16 @@ class DecisionManager:
     # ─────────────────────────────────────────────────────────────────────────
 
     def update(self, lane_result=None, tsr_result=None,
-               pothole_result=None, acc_result=None, tl_result=None,
-               sensor_data=None):
+               pothole_result=None, acc_result=None, tl_result=None):
         """
         Combine ADAS module outputs into a single Command.
 
-        All inputs are optional — missing modules are skipped gracefully.
-        Returns a Command ready to call .to_serial() on.
+        No sensor_data parameter — ultrasonic removed.
+        All inputs are optional; missing modules are skipped gracefully.
+        Returns a Command ready to call .to_ws() on.
 
         Priority processing order (highest first):
-        Emergency Stop > Traffic Light > Pothole > TSR > ACC > LKA > LDW
+        Traffic Light > Pothole > TSR > ACC > LKA > LDW
         """
         cmd = Command()
         has_perception = False
@@ -200,10 +205,10 @@ class DecisionManager:
             else:
                 self._lane_lost_frames += 1
 
-        # ── Priority 5: ACC throttle ──────────────────────────────────────
+        # ── Priority 5: ACC throttle ──────────────────────────────────────────────
         if acc_result is not None:
             has_perception = True
-            # ACCResult has speed_norm (0.0–1.0) — use it directly
+            # ACC speed_norm = cruise speed (vision-only, no distance zones)
             spd = acc_result.speed_norm
             if self._tsr_speed_cap is not None:
                 spd = min(spd, self._tsr_speed_cap)
@@ -310,17 +315,10 @@ class DecisionManager:
                 cmd.flags |= 0x10
                 self._smooth_speed = cmd.speed_y
 
-        # ── Priority 1: Emergency Stop (HIGHEST) ─────────────────────────
-        # Completely overrides everything — no smoothing, instant effect.
-        if acc_result is not None and acc_result.emergency_stop:
-            cmd.steer_x = 0.0
-            cmd.speed_y = 0.0
-            cmd.flags |= 0x04
-            # Reset smoothers so we don't ramp back up after obstacle clears
-            self._smooth_steer = 0.0
-            self._smooth_speed = 0.0
+        # ── Priority 1: (E-STOP removed — no ultrasonic sensor) ───────────────
+        # Traffic light RED is now the highest-priority stop.
 
-        # ── Perception health fallback ────────────────────────────────────
+        # ── Perception health fallback ───────────────────────────────────────
         if has_perception:
             self._no_perception_frames = 0
         else:

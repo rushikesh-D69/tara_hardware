@@ -189,8 +189,11 @@ class LaneDetector:
         Create a binary mask of lane markings optimized for
         white tape on black chart paper floor.
 
-        Uses adaptive thresholding (primary) for robustness under
-        variable indoor lighting, with optional HSV fallback.
+        Primary:  Adaptive threshold (robust to uneven indoor lighting).
+        Recovery: Merges adaptive result with a LAB-space white detector.
+                  LAB is perceptually uniform — white tape has consistently
+                  high L regardless of floor color or lighting temperature.
+                  Borrowed from TurboPi's LineFollower approach.
 
         Args:
             frame: BGR image
@@ -201,9 +204,7 @@ class LaneDetector:
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
         if self._use_adaptive:
-            # Adaptive threshold: highlights locally bright regions (white tape)
-            # against their surrounding area (dark floor). This works regardless
-            # of absolute brightness — handles shadows and uneven lighting.
+            # Primary: adaptive threshold — locally bright (white tape) on dark floor
             mask = cv2.adaptiveThreshold(
                 gray,
                 255,
@@ -213,18 +214,36 @@ class LaneDetector:
                 self._adaptive_c,
             )
 
-            # Recovery mode: lower the threshold to catch faint lanes
+            # Recovery mode: merge adaptive result with LAB-space white detection
             if self._recovery_mode:
-                mask_recovery = cv2.adaptiveThreshold(
+                # More permissive adaptive pass
+                mask_adaptive_loose = cv2.adaptiveThreshold(
                     gray, 255,
                     cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                     cv2.THRESH_BINARY,
                     self._adaptive_block,
-                    self._adaptive_c + 10,  # more permissive
+                    self._adaptive_c + 10,   # more permissive
                 )
-                mask = cv2.bitwise_or(mask, mask_recovery)
+
+                # LAB white detection — L > 180 (bright), a near 128, b near 128
+                # OpenCV LAB: L in [0,255], a and b in [0,255] (128=neutral)
+                lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
+                mask_lab = cv2.inRange(
+                    lab,
+                    (170,  110, 110),   # L_min, a_min, b_min
+                    (255,  145, 145),   # L_max, a_max, b_max
+                )
+                # Morphological cleanup on LAB mask — remove noise spots
+                mask_lab = cv2.morphologyEx(
+                    mask_lab, cv2.MORPH_OPEN,
+                    cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+                )
+
+                # Merge all three passes — any vote counts
+                mask = cv2.bitwise_or(mask, mask_adaptive_loose)
+                mask = cv2.bitwise_or(mask, mask_lab)
         else:
-            # Fallback: HSV-based white detection
+            # Fallback: HSV-based white detection (config-driven)
             hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
             mask = cv2.inRange(
                 hsv,
@@ -237,6 +256,8 @@ class LaneDetector:
         _, mask = cv2.threshold(mask, 127, 255, cv2.THRESH_BINARY)
 
         return mask
+
+
 
     def _find_lane_bases(self, bev_mask):
         """
