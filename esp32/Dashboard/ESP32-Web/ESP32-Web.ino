@@ -41,16 +41,18 @@
 #include "Navigation.h"
 
 // ─── Auto-mode watchdog ───────────────────────────────────────────────────────
-// If in AUTO mode and no auto_cmd has arrived from RPi for >1.5 s,
+// If in AUTO mode and no auto_cmd has arrived from RPi for >5 s,
 // fall back to MANUAL so the robot doesn't keep driving blind.
+// RPi sends at ~20 Hz (every 50 ms) so this only fires on genuine failure.
 static void checkAutoWatchdog() {
-  if (driveMode == MODE_AUTO && (millis() - lastRpiCmd > 1500)) {
+  if (driveMode == MODE_AUTO && (millis() - lastRpiCmd > 5000)) {
     driveMode = MODE_MANUAL;
     JoyData stop = {0.0f, 0.0f};
     xQueueOverwrite(controlQueue, &stop);
     if (ws.count() > 0)
       ws.textAll("{\"type\":\"mode\",\"mode\":\"manual\",\"reason\":\"rpi_timeout\"}");
     Serial.println("[MODE] MANUAL (RPi WiFi timeout watchdog)");
+    lastRpiCmd = millis();  // reset so it doesn't fire every loop tick
   }
 }
 
