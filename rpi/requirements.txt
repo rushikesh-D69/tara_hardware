@@ -1,23 +1,12 @@
-# TARA ADAS — Raspberry Pi Dependencies
-# Install inside a virtual environment:
-#   python3 -m venv venv
-#   source venv/bin/activate
-#   pip install -r requirements.txt
+# TARA RPi — Python dependencies
+# Install with: pip install -r requirements.txt
+#
+# NOTE: Use tflite-runtime (not tensorflow) on Raspberry Pi.
+#       Full tensorflow is only needed on a PC for model training.
 
-# Core computer vision
-opencv-python-headless>=4.8.0
-
-# TFLite runtime (lightweight, no full TensorFlow needed)
-# For RPi 4B (aarch64), install via:
-#   pip install tflite-runtime
-tflite-runtime>=2.14.0
-
-# Numerical operations
-numpy>=1.24.0
-
-# Serial communication with ESP32
-pyserial>=3.5
-
-# Cloud data logging (optional — prototype works without it)
-# Installs ~30MB of dependencies. Skip if running fully offline.
-firebase-admin>=6.2.0
+opencv-contrib-python-headless
+numpy
+tflite-runtime
+websocket-client
+pyserial
+firebase-admin
