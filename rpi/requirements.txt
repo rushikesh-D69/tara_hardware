@@ -1,12 +1,14 @@
 # TARA RPi — Python dependencies
 # Install with: pip install -r requirements.txt
 #
-# NOTE: Use tflite-runtime (not tensorflow) on Raspberry Pi.
-#       Full tensorflow is only needed on a PC for model training.
+# Tested on: Raspberry Pi OS Trixie (Debian 13), Python 3.12
+#
+# TFLite: use ai-edge-litert (Google's new package name, supports Python 3.12+)
+# Do NOT use tflite-runtime — it stopped at Python 3.11.
 
 opencv-contrib-python-headless
 numpy
-tflite-runtime
+ai-edge-litert
 websocket-client
 pyserial
 firebase-admin

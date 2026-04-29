@@ -70,18 +70,40 @@ class PotholeDetector:
 
     def load_model(self):
         """Load the TFLite model.
-        On Raspberry Pi 4B, tflite-runtime is preferred over full TensorFlow.
-        Install: pip install tflite-runtime
+
+        Import priority (Python 3.12 / Trixie compatible):
+          1. ai-edge-litert   — Google's new name (Python 3.12+)
+             pip install ai-edge-litert
+          2. tflite-runtime   — legacy name (Python ≤3.11)
+             pip install tflite-runtime
+          3. tensorflow.lite  — full TF fallback (slow on RPi, last resort)
         """
+        tflite = None
         try:
-            import tflite_runtime.interpreter as tflite
+            # Priority 1: ai-edge-litert (Python 3.12+, Raspberry Pi OS Trixie)
+            from ai_edge_litert import interpreter as _ai_edge
+            tflite = _ai_edge
+            log.info("TFLite backend: ai-edge-litert")
         except ImportError:
+            pass
+
+        if tflite is None:
             try:
-                import tensorflow.lite as tflite
-                log.warning("tflite-runtime not found — using full TensorFlow (slow on RPi). "
-                            "Install: pip install tflite-runtime")
+                # Priority 2: legacy tflite-runtime (Python ≤3.11)
+                import tflite_runtime.interpreter as tflite
+                log.info("TFLite backend: tflite-runtime")
             except ImportError:
-                log.error("No TFLite backend found. Run: pip install tflite-runtime")
+                pass
+
+        if tflite is None:
+            try:
+                # Priority 3: full TensorFlow (slow on RPi)
+                import tensorflow.lite as tflite
+                log.warning("TFLite backend: full TensorFlow — slow on RPi. "
+                            "Run: pip install ai-edge-litert")
+            except ImportError:
+                log.error("No TFLite backend found. "
+                          "Run: pip install ai-edge-litert")
                 return False
 
         try:

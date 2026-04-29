@@ -107,20 +107,34 @@ class TrafficSignRecognizer:
 
     def load_model(self):
         """
-        Load the TFLite model. Call this once during startup.
-        Separated from __init__ to allow graceful fallback if model not found.
+        Import priority (Python 3.12 / Trixie compatible):
+          1. ai-edge-litert   — Google's new name (Python 3.12+)
+          2. tflite-runtime   — legacy name (Python ≤3.11)
+          3. tensorflow.lite  — full TF fallback (slow on RPi)
         """
+        tflite = None
         try:
-            import tflite_runtime.interpreter as tflite
+            from ai_edge_litert import interpreter as _ai_edge
+            tflite = _ai_edge
+            log.info("TFLite backend: ai-edge-litert")
         except ImportError:
+            pass
+
+        if tflite is None:
             try:
-                # Fallback: use TFLite from full TensorFlow
-                import tensorflow.lite as tflite
-                log.warning("Using full TensorFlow for TFLite — "
-                            "install tflite-runtime for production")
+                import tflite_runtime.interpreter as tflite
+                log.info("TFLite backend: tflite-runtime")
             except ImportError:
-                log.error("Neither tflite-runtime nor tensorflow found! "
-                          "TSR will be disabled.")
+                pass
+
+        if tflite is None:
+            try:
+                import tensorflow.lite as tflite
+                log.warning("TFLite backend: full TensorFlow — slow on RPi. "
+                            "Run: pip install ai-edge-litert")
+            except ImportError:
+                log.error("Neither ai-edge-litert nor tflite-runtime nor tensorflow found! "
+                          "TSR will be disabled. Run: pip install ai-edge-litert")
                 return False
 
         model_path = self.cfg.TSR_MODEL_PATH
