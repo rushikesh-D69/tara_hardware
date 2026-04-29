@@ -80,8 +80,11 @@ class _MjpegHandler(BaseHTTPRequestHandler):
         else:
             self.send_error(404)
 
+class _ReusableHTTPServer(HTTPServer):
+    allow_reuse_address = True
+
 def _start_mjpeg_server():
-    srv = HTTPServer(('0.0.0.0', _MJPEG_PORT), _MjpegHandler)
+    srv = _ReusableHTTPServer(('0.0.0.0', _MJPEG_PORT), _MjpegHandler)
     t = threading.Thread(target=srv.serve_forever, daemon=True, name='MJPEGServer')
     t.start()
     return srv
