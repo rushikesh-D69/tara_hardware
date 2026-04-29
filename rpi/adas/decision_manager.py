@@ -202,6 +202,7 @@ class DecisionManager:
                 # Weight by detection confidence for smoother single-lane behavior
                 # Increase gain for indoor track (proportional steering)
                 steer_gain = 1.2
+                confidence_weight = getattr(lane_result, 'confidence', 1.0)
                 self._last_steer_x = lane_result.steering_correction * steer_gain * min(1.0, confidence_weight + 0.3)
             else:
                 self._lane_lost_frames += 1
