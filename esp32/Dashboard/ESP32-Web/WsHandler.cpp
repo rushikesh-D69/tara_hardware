@@ -99,12 +99,7 @@ void onWsEvent(AsyncWebSocket *srv, AsyncWebSocketClient *client,
   // ── Route by source ───────────────────────────────────────────────────────
   const bool fromRpi = isRpi(cid);
 
-  // Update appropriate watchdog timestamp
-  if (fromRpi) {
-    lastRpiCmd = millis();          // RPi is alive
-  } else {
-    lastWsMessage = millis();       // Dashboard is alive
-  }
+  // Watchdog updates REMOVED
 
   // ── Parse JSON ────────────────────────────────────────────────────────────
   StaticJsonDocument<1024> doc;
@@ -147,7 +142,6 @@ void onWsEvent(AsyncWebSocket *srv, AsyncWebSocketClient *client,
     const char *m = doc["mode"] | "manual";
     if (strcmp(m, "auto") == 0) {
       driveMode = MODE_AUTO;
-      lastRpiCmd = millis();   // reset watchdog — give RPi 5 s to connect & send
       JoyData stop = {0.0f, 0.0f};
       xQueueOverwrite(controlQueue, &stop);
       Serial.printf("[MODE] AUTO (client #%u %s)\n", cid,
@@ -194,7 +188,6 @@ void onWsEvent(AsyncWebSocket *srv, AsyncWebSocketClient *client,
         constrain((float)doc["y"],  0.0f,  1.0f),
       };
       xQueueOverwrite(controlQueue, &jd);
-      lastRpiCmd = millis();
 
       // Echo command to Dashboard so user can see Pi's decisions
       char echo[128];
