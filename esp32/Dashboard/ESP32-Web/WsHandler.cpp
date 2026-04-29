@@ -89,9 +89,15 @@ void onWsEvent(AsyncWebSocket *srv, AsyncWebSocketClient *client,
     Serial.printf("[WS] Client #%u disconnected\n", cid);
     if (cid == wsRpiClientId) {
       wsRpiClientId = 0;
-      Serial.println("[WS] RPi client gone — fallback to MANUAL");
-      // Don't force MANUAL here — the auto watchdog in loop() handles that
-      // gracefully so the robot gets a 1.5 s coast before stopping.
+      Serial.println("[WS] RPi client gone — immediate MANUAL fallback");
+      // Immediately stop & revert — don't wait for the watchdog timer
+      if (driveMode == MODE_AUTO) {
+        driveMode = MODE_MANUAL;
+        JoyData stop = {0.0f, 0.0f};
+        xQueueOverwrite(controlQueue, &stop);
+        if (ws.count() > 0)
+          ws.textAll("{\"type\":\"mode\",\"mode\":\"manual\",\"reason\":\"rpi_disconnected\"}");
+      }
     }
     return;
   }
