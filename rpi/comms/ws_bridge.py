@@ -148,12 +148,15 @@ class WsBridge:
                 payload = str(command)
 
             with self._lock:
+                if self._ws is None:
+                    return False
                 self._ws.send(payload)
             self._send_count += 1
             return True
 
         except Exception as e:
             log.error(f"WS send failed: {e}")
+            self._connected = False  # mark disconnected so loop stops spamming
             return False
 
     def send_stop(self) -> bool:
@@ -179,6 +182,8 @@ class WsBridge:
     # ── WebSocket callbacks ───────────────────────────────────────────────────
 
     def _on_open(self, ws):
+        with self._lock:
+            self._ws = ws            # update to the (re)connected socket
         self._connected = True
         log.info("[WS] Connection opened")
         try:
@@ -211,7 +216,9 @@ class WsBridge:
 
     def _on_close(self, ws, close_status_code, close_msg):
         self._connected = False
-        log.warning(f"[WS] Connection closed (code={close_status_code})")
+        with self._lock:
+            self._ws = None          # prevent sends on dead socket
+        log.warning(f"[WS] Connection closed (code={close_status_code}) — will auto-reconnect")
 
     # ── Heartbeat thread ──────────────────────────────────────────────────────
 

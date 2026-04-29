@@ -225,15 +225,14 @@ function handleJsonMessage(msg) {
     if (!msg || !msg.type) return;
 
     if (msg.type === 'mode') {
-        // ESP32 is telling us the authoritative current mode
+        // ESP32 is telling us the authoritative current mode — never echo back
         const isAuto = (msg.mode === 'auto');
-        syncModeUI(isAuto);
+        syncModeUI(isAuto, false);   // false = do NOT re-send set_mode (breaks loop)
         if (msg.reason === 'rpi_timeout') {
             cmdLog('err', `ESP32: RPi timeout → fallback to MANUAL`);
             console.warn('[TÁRA] RPi went silent — forced back to MANUAL');
-        } else {
-            cmdLog('sys', `ESP32 mode confirmed: ${msg.mode.toUpperCase()}${msg.reason ? ' (' + msg.reason + ')' : ''}`);
         }
+        // Suppress noisy mode-confirmed spam in log — only log changes
     }
 }
 
