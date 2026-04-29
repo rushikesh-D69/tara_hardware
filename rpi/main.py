@@ -27,7 +27,9 @@ import sys
 import time
 import argparse
 import signal
+import threading
 import cv2
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 # ── Ensure the rpi/ directory is on the import path ───────────────────────────
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -44,11 +46,59 @@ from comms.ws_bridge import WsBridge
 from utils.fps_counter import FPSCounter
 from utils.logger import setup_logger, get_logger
 
+# ── MJPEG Stream Server (headless debug — no monitor needed) ──────────────────
+_mjpeg_frame   = None          # latest JPEG bytes, updated by pipeline
+_mjpeg_lock    = threading.Lock()
+_MJPEG_PORT    = 5000
+
+class _MjpegHandler(BaseHTTPRequestHandler):
+    def log_message(self, *a): pass   # silence HTTP access log
+    def do_GET(self):
+        if self.path == '/':
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html')
+            self.end_headers()
+            self.wfile.write(b'<html><body style="margin:0;background:#000">' +
+                             b'<img src="/stream" style="width:100%;max-width:800px">'
+                             b'</body></html>')
+        elif self.path == '/stream':
+            self.send_response(200)
+            self.send_header('Content-Type',
+                             'multipart/x-mixed-replace; boundary=frame')
+            self.end_headers()
+            try:
+                while True:
+                    with _mjpeg_lock:
+                        jpg = _mjpeg_frame
+                    if jpg:
+                        self.wfile.write(
+                            b'--frame\r\nContent-Type: image/jpeg\r\n\r\n'
+                            + jpg + b'\r\n')
+                    time.sleep(0.04)   # ~25 fps cap
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+        else:
+            self.send_error(404)
+
+def _start_mjpeg_server():
+    srv = HTTPServer(('0.0.0.0', _MJPEG_PORT), _MjpegHandler)
+    t = threading.Thread(target=srv.serve_forever, daemon=True, name='MJPEGServer')
+    t.start()
+    return srv
+
+def _push_mjpeg_frame(bgr_frame):
+    """Call from the pipeline to update the streamed frame."""
+    global _mjpeg_frame
+    ok, buf = cv2.imencode('.jpg', bgr_frame, [cv2.IMWRITE_JPEG_QUALITY, 75])
+    if ok:
+        with _mjpeg_lock:
+            _mjpeg_frame = buf.tobytes()
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="TARA ADAS — RPi Pipeline")
     parser.add_argument("--debug", action="store_true",
-                        help="Show OpenCV debug window")
+                        help="Stream annotated video at http://RPI_IP:5000/")
     parser.add_argument("--no-wifi", action="store_true",
                         help="Run without ESP32 WiFi connection (vision-only)")
     parser.add_argument("--video", type=str, default=None,
@@ -114,6 +164,12 @@ class TARAAdas:
                 port=config.ESP32_WS_PORT,
                 path=config.ESP32_WS_PATH,
             )
+
+        # MJPEG stream server for headless debug
+        self._mjpeg_server = None
+        if args.debug:
+            self._mjpeg_server = _start_mjpeg_server()
+            self.log.info(f"Debug stream: http://<RPI_IP>:{_MJPEG_PORT}/  (view in browser)")
 
         # Performance tracking
         self.fps = FPSCounter(window_size=30)
@@ -320,13 +376,8 @@ class TARAAdas:
             cv2.putText(display, text, (panel_x, panel_y + 15 + i * 15),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.35, color, 1)
 
-        try:
-            cv2.imshow("TARA ADAS", display)
-            key = cv2.waitKey(1) & 0xFF
-            if key == ord('q'):
-                self.running = False
-        except cv2.error:
-            pass  # headless opencv — no GUI available
+        # Push to MJPEG stream (headless-safe — no GUI window needed)
+        _push_mjpeg_frame(display)
 
 
     def stop(self):
@@ -342,12 +393,7 @@ class TARAAdas:
         # Stop camera
         self.camera.stop()
 
-        # Close debug window (headless-safe)
-        if self.args.debug:
-            try:
-                cv2.destroyAllWindows()
-            except cv2.error:
-                pass  # opencv-headless has no GUI — ignore
+        # MJPEG server is a daemon thread — stops automatically with the process
 
         self.log.info("=" * 50)
         self.log.info("  TARA ADAS — STOPPED")
