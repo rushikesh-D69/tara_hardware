@@ -40,8 +40,7 @@ from adas.pothole_detection import PotholeDetector
 from adas.adaptive_cruise import AdaptiveCruiseControl
 from adas.traffic_light import TrafficLightDetector
 from adas.decision_manager import DecisionManager
-from comms.ws_bridge import WsBridge          # WiFi WebSocket — replaces SerialBridge
-from cloud.firebase_logger import FirebaseLogger, LocalSessionRecorder
+from comms.ws_bridge import WsBridge
 from utils.fps_counter import FPSCounter
 from utils.logger import setup_logger, get_logger
 
@@ -52,8 +51,6 @@ def parse_args():
                         help="Show OpenCV debug window")
     parser.add_argument("--no-wifi", action="store_true",
                         help="Run without ESP32 WiFi connection (vision-only)")
-    parser.add_argument("--no-cloud", action="store_true",
-                        help="Disable cloud logging (fully offline)")
     parser.add_argument("--video", type=str, default=None,
                         help="Use video file instead of live camera")
     parser.add_argument("--log-level", type=str,
@@ -118,16 +115,6 @@ class TARAAdas:
                 path=config.ESP32_WS_PATH,
             )
 
-        # Cloud logger (async, non-blocking)
-        self.cloud = None
-        if not args.no_cloud and getattr(config, 'CLOUD_ENABLED', False):
-            self.cloud = FirebaseLogger(config)
-
-        # Local session recorder (always-on fallback)
-        self.local_recorder = None
-        if getattr(config, 'LOCAL_RECORDING_ENABLED', True):
-            self.local_recorder = LocalSessionRecorder(config)
-
         # Performance tracking
         self.fps = FPSCounter(window_size=30)
 
@@ -164,16 +151,6 @@ class TARAAdas:
             if not self.ws.connect():
                 self.log.warning("ESP32 WiFi not connected — running in vision-only mode")
                 self.ws = None
-
-        # Start cloud logger
-        if self.cloud:
-            if not self.cloud.connect():
-                self.log.info("Cloud logging unavailable — running offline")
-                self.cloud = None
-
-        # Start local recorder
-        if self.local_recorder:
-            self.local_recorder.start()
 
         self.running = True
         self.log.info("=" * 50)
@@ -359,66 +336,6 @@ class TARAAdas:
         if key == ord('q'):
             self.running = False
 
-    def _log_data(self, frame, command):
-        """
-        Push telemetry + detection events to cloud and local recorder.
-        All calls here are non-blocking — they either queue data
-        for a background thread (cloud) or do a quick file write (local).
-        """
-        current_fps = self.fps.fps()
-
-        # Telemetry (throttled internally to every N seconds)
-        if self.cloud:
-            self.cloud.log_telemetry(
-                current_fps, command,
-                acc_result=self._last_acc,
-                lane_result=self._last_lane,
-            )
-        if self.local_recorder:
-            self.local_recorder.log_telemetry(
-                current_fps, command,
-                acc_result=self._last_acc,
-                lane_result=self._last_lane,
-            )
-
-        # Detection events — snapshot frame only on actual detections
-        # (not every frame, so upload volume stays tiny)
-        if self._last_tsr and self._last_tsr.sign_detected:
-            meta = {
-                'class': self._last_tsr.class_name,
-                'confidence': round(self._last_tsr.confidence, 3),
-            }
-            if self.cloud:
-                self.cloud.log_event(frame, 'sign', meta)
-            if self.local_recorder:
-                self.local_recorder.log_event(frame, 'sign', meta)
-
-        if self._last_pothole and self._last_pothole.pothole_detected:
-            meta = {
-                'position': self._last_pothole.position,
-                'confidence': round(self._last_pothole.confidence, 3),
-            }
-            if self.cloud:
-                self.cloud.log_event(frame, 'pothole', meta)
-            if self.local_recorder:
-                self.local_recorder.log_event(frame, 'pothole', meta)
-
-        if (self._last_lane and self._last_lane.departure_warning
-                and self.frame_num % 15 == 0):  # Throttle departure events
-            if self.cloud:
-                self.cloud.log_event(frame, 'departure', {
-                    'offset': round(self._last_lane.lane_center_offset, 1),
-                })
-            if self.local_recorder:
-                self.local_recorder.log_event(frame, 'departure')
-
-        if self._last_acc and self._last_acc.emergency_stop:
-            if self.cloud:
-                self.cloud.log_event(frame, 'emergency_stop', {
-                    'distance_cm': round(self._last_acc.distance_cm, 1),
-                })
-            if self.local_recorder:
-                self.local_recorder.log_event(frame, 'emergency_stop')
 
     def stop(self):
         """Gracefully shut down all modules."""
@@ -430,20 +347,15 @@ class TARAAdas:
             self.ws.send_stop()
             self.ws.disconnect()
 
-        # Stop cloud logger (flushes remaining uploads)
-        if self.cloud:
-            self.cloud.stop()
-
-        # Stop local recorder
-        if self.local_recorder:
-            self.local_recorder.stop()
-
         # Stop camera
         self.camera.stop()
 
-        # Close debug window
+        # Close debug window (headless-safe)
         if self.args.debug:
-            cv2.destroyAllWindows()
+            try:
+                cv2.destroyAllWindows()
+            except cv2.error:
+                pass  # opencv-headless has no GUI — ignore
 
         self.log.info("=" * 50)
         self.log.info("  TARA ADAS — STOPPED")
