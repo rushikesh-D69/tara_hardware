@@ -1068,6 +1068,19 @@ input[type="range"]::-moz-range-thumb {
     box-shadow: 0 0 10px rgba(245,158,11,0.2);
 }
 
+.nav-status-badge.badge-auto {
+    background: rgba(245, 158, 11, 0.2);
+    color: #fbbf24;
+    border-color: rgba(245, 158, 11, 0.5);
+    box-shadow: 0 0 14px rgba(245, 158, 11, 0.35);
+    animation: badge-auto-pulse 2s ease-in-out infinite;
+}
+
+@keyframes badge-auto-pulse {
+    0%, 100% { box-shadow: 0 0 14px rgba(245, 158, 11, 0.35); }
+    50%       { box-shadow: 0 0 22px rgba(245, 158, 11, 0.6);  }
+}
+
 .nav-status-detail {
     font-size: 0.8rem;
     color: var(--text-muted);

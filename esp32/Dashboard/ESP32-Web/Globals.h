@@ -7,13 +7,21 @@
 #include <ESPAsyncWebServer.h>
 #include "Config.h"
 
+// ─── Drive Mode ───────────────────────────────────────────────────────────────
+// MANUAL  : all movement commands come from the WebSocket dashboard
+// AUTO    : movement commands come from RPi via Serial (CMD:x,y,flags)
+//           The dashboard can still read telemetry but joystick is ignored.
+enum DriveMode { MODE_MANUAL, MODE_AUTO };
+extern volatile DriveMode driveMode;
+
 // WiFi Credentials
 extern const char *ssid;
 extern const char *password;
 
 extern AsyncWebServer server;
 extern AsyncWebSocket ws;
-extern unsigned long lastWsMessage;
+extern unsigned long lastWsMessage;   // last ANY message from WS client (heartbeat / cmd)
+extern unsigned long lastSerialCmd;   // last CMD: received from RPi — for Auto watchdog
 
 // Encoders
 extern volatile long pulseLeft;

@@ -216,7 +216,8 @@ class DecisionManager:
             self._tsr_last_seen_time = now
 
             if tsr_result.speed_limit is not None:
-                self._tsr_speed_cap = tsr_result.speed_limit / 255.0
+                # speed_limit is already normalized (0.0–1.0) from config.TSR_SPEED_LIMITS
+                self._tsr_speed_cap = tsr_result.speed_limit
 
             if tsr_result.is_stop_sign:
                 self._tsr_speed_cap = 0.0

@@ -94,7 +94,12 @@ function connectWebSocket() {
     };
 
     ws.onmessage = (event) => {
-        handleTelemetry(event.data);
+        const raw = event.data.trim();
+        if (raw.startsWith('SEN:')) {
+            handleTelemetry(raw);
+        } else if (raw.startsWith('{')) {
+            handleJsonMessage(JSON.parse(raw));
+        }
     };
 }
 
@@ -138,42 +143,56 @@ if (piCameraStream) {
  *  [18] = bat            (battery voltage, V)
  */
 
-function handleTelemetry(raw) {
-    const data = raw.trim().split(',');
+function handleJsonMessage(msg) {
+    if (!msg || !msg.type) return;
 
-    // Validate packet header
-    if (data[0] !== "SEN:" || data.length < 19) {
-        // Fallback: try legacy "RAW" format for backward compatibility
-        if (data[0] === "RAW" && data.length >= 3) {
-            const yaw = parseFloat(data[1]).toFixed(2);
-            const rate = parseFloat(data[2]).toFixed(2);
-            dataYaw.textContent = `${yaw}°`;
-            dataRate.textContent = `${rate}°/s`;
-            // Apply yaw inversely to correct for visual layout (-yaw)
-            carModel.style.transform = `rotate(${-yaw}deg)`;
+    if (msg.type === 'mode') {
+        // ESP32 is telling us the authoritative current mode
+        const isAuto = (msg.mode === 'auto');
+        syncModeUI(isAuto);
+        if (msg.reason === 'rpi_timeout') {
+            console.warn('[TÁRA] RPi went silent — forced back to MANUAL');
         }
-        return;
     }
+}
 
-    // Parse all fields
-    const v = parseFloat(data[1]);
-    const vTarget = parseFloat(data[2]);
-    const yaw = parseFloat(data[3]);
-    const yawRate = parseFloat(data[4]);
-    const omega = parseFloat(data[5]);   // angular velocity rad/s (encoder-based)
-    const lmSpd = parseFloat(data[6]);
-    const rmSpd = parseFloat(data[7]);
-    const encL = parseInt(data[8], 10);
-    const encR = parseInt(data[9], 10);
-    const distTrav = parseFloat(data[10]);
-    const posX = parseFloat(data[11]);
-    const posY = parseFloat(data[12]);
-    const heading = parseFloat(data[13]);
-    const lead = parseFloat(data[14]);
-    const ttc = parseFloat(data[15]);
-    const accStatus = parseInt(data[16], 10);
-    const aebStatus = parseInt(data[17], 10);
-    const bat = parseFloat(data[18]);
+function handleTelemetry(raw) {
+    // SEN: packet — fields separated by commas.
+    // Header is the prefix of the first token: "SEN:" + field[1] value
+    // So we strip the prefix and split properly.
+    if (!raw.startsWith('SEN:')) return;
+
+    // Remove the "SEN:" prefix, then split remaining CSV
+    const csv   = raw.slice(4); // strip "SEN:"
+    const data  = csv.split(',');
+    if (data.length < 18) return;
+
+    // Parse all fields (0-indexed after stripping "SEN:")
+    // [0]=v_linear [1]=baseSpeed [2]=yaw [3]=yawRate [4]=v_angular
+    // [5]=lmPWM   [6]=rmPWM    [7]=encL [8]=encR    [9]=distTraveled
+    // [10]=posX   [11]=posY    [12]=heading [13]=leadDist [14]=ttc
+    // [15]=acc    [16]=aeb     [17]=bat  [18]=navStatus [19]=navProgress [20]=driveMode
+    const v         = parseFloat(data[0]);
+    const vTarget   = parseFloat(data[1]);
+    const yaw       = parseFloat(data[2]);
+    const yawRate   = parseFloat(data[3]);
+    const omega     = parseFloat(data[4]);
+    const lmSpd     = parseFloat(data[5]);
+    const rmSpd     = parseFloat(data[6]);
+    const encL      = parseInt(data[7],  10);
+    const encR      = parseInt(data[8],  10);
+    const distTrav  = parseFloat(data[9]);
+    const posX      = parseFloat(data[10]);
+    const posY      = parseFloat(data[11]);
+    const heading   = parseFloat(data[12]);
+    const lead      = parseFloat(data[13]);
+    const ttc       = parseFloat(data[14]);
+    const accStatus = parseInt(data[15], 10);
+    const aebStatus = parseInt(data[16], 10);
+    const bat       = parseFloat(data[17]);
+    const navSt     = data.length > 18 ? parseInt(data[18], 10) : 0;
+    const navProg   = data.length > 19 ? parseFloat(data[19])   : 0;
+    const espMode   = data.length > 20 ? parseInt(data[20], 10) : -1; // 0=MANUAL 1=AUTO
 
     // --- Update Panel 2: Orientation ---
     dataYaw.textContent = `${yaw.toFixed(2)}°`;
@@ -209,16 +228,19 @@ function handleTelemetry(raw) {
         statusAeb.className = "value badge standby";
     }
 
-    // Distance and TTC logic removed
-    dataLead.textContent = `— cm`;
-    dataTtc.textContent = `— s`;
+    // Lead distance & TTC
+    if (lead > 0 && lead < 999) {
+        dataLead.textContent = `${lead.toFixed(1)} cm`;
+        dataTtc.textContent  = ttc > 0 ? `${ttc.toFixed(2)} s` : `— s`;
+    } else {
+        dataLead.textContent = `— cm`;
+        dataTtc.textContent  = `— s`;
+    }
 
     // --- Update Panel 4: Speed Chart ---
     pushChartData(lmSpd, rmSpd, v);
 
     // --- Update Panel 5: Camera Stream & Encoder ---
-    // Camera connects automatically; no repetitive telemetry needed for it.
-
     encLeft.textContent = encL;
     encRight.textContent = encR;
     encDistance.textContent = distTrav.toFixed(2);
@@ -226,11 +248,15 @@ function handleTelemetry(raw) {
     // --- Update Panel 6: Mini Map & Status ---
     addMapPoint(posX, posY, heading, v);
 
-    // Parse nav status (fields 19, 20 — extended packet)
-    if (data.length >= 21) {
-        const ns = parseInt(data[19], 10);
-        const np = parseFloat(data[20]);
-        updateNavDisplay(ns, np);
+    // Nav status from pre-parsed fields
+    updateNavDisplay(navSt, navProg);
+
+    // Sync drive mode from telemetry field [20]
+    if (espMode >= 0) {
+        const telemetryAuto = espMode === 1;
+        if (telemetryAuto !== autoMode) {
+            syncModeUI(telemetryAuto, false); // false = don't re-send set_mode
+        }
     }
 
     // Battery
@@ -324,16 +350,17 @@ document.addEventListener('touchend', resetStick);
 /* =========================================
    5. SPEED SLIDER
    ========================================= */
-let currentBaseSpeed = 150;  // PWM
+// Speed: 0.0–1.0 scale (firmware expects 0.0–1.0, slider is 0–100)
+let currentBaseSpeed = 0.6;  // default 60%
 
 speedSlider.addEventListener('input', (e) => {
-    currentBaseSpeed = parseInt(e.target.value, 10);
-    speedValue.textContent = currentBaseSpeed;
+    currentBaseSpeed = parseInt(e.target.value, 10) / 100.0;
+    speedValue.textContent = e.target.value;
 });
 
-// Send speed change on release to avoid flooding
+// Send speed change on slider release to avoid flooding
 speedSlider.addEventListener('change', () => {
-    sendCommand({ type: "speed", value: currentBaseSpeed });  // value in PWM
+    sendCommand({ type: "speed", value: currentBaseSpeed });  // 0.0–1.0
 });
 
 const pprLInput = document.getElementById('ppr-l-input');
@@ -384,20 +411,22 @@ function sendCommand(cmd) {
     }
 }
 
-// Send telemetry requests or drive commands
-let heartbeatCounter = 0;
+// Control loop: 20 Hz joystick send + 1 Hz heartbeat regardless of mode
+let heartbeatTick = 0;
 setInterval(() => {
-    if (isConnected && ws.readyState === WebSocket.OPEN) {
-        if (!autoMode) {
-            sendCommand(`CMD:${currentX},${currentY},${eStopEngaged ? 4 : 0}`);
-        } else {
-            // Heartbeat in auto mode at 2Hz (every 10 ticks)
-            heartbeatCounter++;
-            if (heartbeatCounter >= 10) {
-                sendCommand({ type: "heartbeat" });
-                heartbeatCounter = 0;
-            }
-        }
+    if (!isConnected || ws.readyState !== WebSocket.OPEN) return;
+
+    if (!autoMode) {
+        // MANUAL: send joystick position at 20 Hz
+        sendCommand(`CMD:${currentX},${currentY},${eStopEngaged ? 4 : 0}`);
+    }
+    // AUTO: movement comes from RPi — just keep WS watchdog alive via heartbeat
+
+    // Heartbeat every 1 s (20 ticks × 50 ms) regardless of mode
+    heartbeatTick++;
+    if (heartbeatTick >= 20) {
+        sendCommand({ type: 'heartbeat' });
+        heartbeatTick = 0;
     }
 }, 50);
 
@@ -748,7 +777,9 @@ drawMapGrid();
 
 
 /* =========================================
-   12. AUTONOMOUS MODE
+   12. DRIVE MODE MANAGEMENT
+   Manual = joystick + nav commands from dashboard
+   Auto   = RPi UART drives robot; dashboard read-only for movement
    ========================================= */
 let autoMode = false;
 
@@ -763,36 +794,54 @@ const navStatusDetail = document.getElementById('nav-status-detail');
 const navProgressFill = document.getElementById('nav-progress-fill');
 const navProgressPct  = document.getElementById('nav-progress-pct');
 
-// --- Mode toggle ---
-btnModeToggle.addEventListener('change', () => {
-    autoMode = btnModeToggle.checked;
+/**
+ * Central function that applies mode to all UI elements
+ * and optionally sends set_mode to the ESP32.
+ * @param {boolean} toAuto  - true = AUTO, false = MANUAL
+ * @param {boolean} notify  - send set_mode over WS (default true)
+ */
+function syncModeUI(toAuto, notify = true) {
+    autoMode = toAuto;
 
-    if (autoMode) {
-        // Switch to AUTO
+    // Keep the toggle checkbox in sync (may be called from telemetry)
+    btnModeToggle.checked = toAuto;
+
+    if (toAuto) {
+        // ── AUTO MODE ──
+        // Dashboard becomes read-only for movement.
+        // Nav controls are DISABLED (RPi drives, not dashboard).
         autoPanel.classList.add('auto-active');
-        autoControlsEl.classList.remove('disabled');
+        autoControlsEl.classList.add('disabled');
         zone.classList.add('joystick-disabled');
         currentX = 0; currentY = 0;
-        sendCommand({ type: 'nav_stop' });
-        navStatusBadge.textContent = 'IDLE';
-        navStatusBadge.className = 'nav-status-badge';
-        navStatusDetail.textContent = 'Auto mode — waiting for command';
+        navStatusBadge.textContent  = 'AUTO';
+        navStatusBadge.className    = 'nav-status-badge badge-auto';
+        navStatusDetail.textContent = 'RPi in control — telemetry read-only';
     } else {
-        // Switch to MANUAL
+        // ── MANUAL MODE ──
+        // Dashboard joystick + nav buttons active.
         autoPanel.classList.remove('auto-active');
-        autoControlsEl.classList.add('disabled');
+        autoControlsEl.classList.remove('disabled');
         zone.classList.remove('joystick-disabled');
-        sendCommand({ type: 'nav_stop' });
-        navStatusBadge.textContent = 'IDLE';
-        navStatusBadge.className = 'nav-status-badge';
+        navStatusBadge.textContent  = 'IDLE';
+        navStatusBadge.className    = 'nav-status-badge';
         navStatusDetail.textContent = 'Manual joystick active';
         navProgressFill.style.width = '0%';
-        navProgressPct.textContent = '0%';
+        navProgressPct.textContent  = '0%';
     }
+
+    if (notify) {
+        sendCommand({ type: 'set_mode', mode: toAuto ? 'auto' : 'manual' });
+    }
+}
+
+// --- Toggle handler (user clicks the switch) ---
+btnModeToggle.addEventListener('change', () => {
+    syncModeUI(btnModeToggle.checked, true);
 });
 
-// Start in manual: controls grid dimmed
-autoControlsEl.classList.add('disabled');
+// Start in MANUAL: nav controls grid enabled, joystick active
+autoControlsEl.classList.remove('disabled');
 
 // --- GoTo speed slider ---
 const navGotoSpeedSlider = document.getElementById('nav-goto-speed');
@@ -801,9 +850,9 @@ navGotoSpeedSlider.addEventListener('input', () => {
     navGotoSpeedVal.textContent = (parseInt(navGotoSpeedSlider.value) / 100).toFixed(2);
 });
 
-// --- GoTo button ---
+// --- GoTo button (MANUAL mode only — nav commands come from dashboard in manual) ---
 document.getElementById('btn-goto').addEventListener('click', () => {
-    if (!isConnected || !autoMode) return;
+    if (!isConnected || autoMode) return;  // block if AUTO
     const cm    = parseFloat(document.getElementById('nav-dist-cm').value);
     const speed = parseInt(navGotoSpeedSlider.value) / 100;
     sendCommand({ type: 'goto', dist: cm / 100.0, speed });
@@ -812,9 +861,9 @@ document.getElementById('btn-goto').addEventListener('click', () => {
     navStatusDetail.textContent = `Driving ${cm} cm forward…`;
 });
 
-// --- Turn buttons ---
+// --- Turn buttons (MANUAL mode only) ---
 document.getElementById('btn-turn-left').addEventListener('click', () => {
-    if (!isConnected || !autoMode) return;
+    if (!isConnected || autoMode) return;
     const deg = parseFloat(document.getElementById('nav-turn-deg').value);
     sendCommand({ type: 'turn', angle: deg, speed: 0.20 });
     navStatusBadge.textContent  = 'TURN';
@@ -823,7 +872,7 @@ document.getElementById('btn-turn-left').addEventListener('click', () => {
 });
 
 document.getElementById('btn-turn-right').addEventListener('click', () => {
-    if (!isConnected || !autoMode) return;
+    if (!isConnected || autoMode) return;
     const deg = parseFloat(document.getElementById('nav-turn-deg').value);
     sendCommand({ type: 'turn', angle: -deg, speed: 0.20 });
     navStatusBadge.textContent  = 'TURN';
@@ -902,7 +951,7 @@ window.removeSeqStep = function(i) {
 };
 
 btnSeqExecute.addEventListener('click', () => {
-    if (!isConnected || !autoMode || seqSteps.length === 0) return;
+    if (!isConnected || autoMode || seqSteps.length === 0) return;  // MANUAL only
     sendCommand({ type: 'sequence', steps: seqSteps });
     navStatusBadge.textContent  = 'SEQ';
     navStatusBadge.className    = 'nav-status-badge badge-seq';
@@ -921,9 +970,11 @@ function updateNavDisplay(status, progress) {
     navProgressPct.textContent  = pct + '%';
 
     if (status === 0) {
-        navStatusBadge.textContent  = 'IDLE';
-        navStatusBadge.className    = 'nav-status-badge';
-        navStatusDetail.textContent = autoMode ? 'Waiting for command' : 'Manual joystick active';
+        navStatusBadge.textContent  = autoMode ? 'AUTO' : 'IDLE';
+        navStatusBadge.className    = autoMode ? 'nav-status-badge badge-auto' : 'nav-status-badge';
+        navStatusDetail.textContent = autoMode
+            ? 'RPi in control — telemetry read-only'
+            : 'Manual joystick active';
     } else if (status === 1) {
         navStatusBadge.textContent  = 'GOTO';
         navStatusBadge.className    = 'nav-status-badge badge-goto';

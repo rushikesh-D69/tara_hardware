@@ -4,7 +4,13 @@ Handles bidirectional communication over USB serial.
 
 Protocol:
   RPi → ESP32:  CMD:<steer>,<speed>,<flags>\n
-  ESP32 → RPi:  SEN:<20 comma-separated fields>\n
+    flags bits:
+      0x01 = request MODE_AUTO   (ESP32 switches to AUTO, accepts CMD movement)
+      0x02 = request MODE_MANUAL (ESP32 switches to MANUAL, ignores CMD movement)
+      0x04 = emergency stop
+
+  ESP32 → RPi:  SEN:<21 comma-separated fields>\n
+                 [MODE] / [NAV] / [ODOM] ACK strings (ignored by parser)
 
 ESP32 SEN packet fields (from ESP32-Web.ino loop()):
   [0]  v_linear      (m/s)
@@ -27,6 +33,7 @@ ESP32 SEN packet fields (from ESP32-Web.ino loop()):
   [17] batVoltage     (V)
   [18] navStatus      (int, 0=idle, 1=goto, 2=turn)
   [19] navProgress    (0.0–1.0)
+  [20] driveMode      (int, 0=MANUAL, 1=AUTO)   ← NEW
 """
 import serial
 import threading
@@ -67,6 +74,13 @@ class SerialBridge:
         self._last_send_time = 0
         self._min_send_interval = 0.02  # 50 Hz max send rate
 
+        # Mode handshake state
+        # On first CMD send, include flag 0x01 (request AUTO mode) so
+        # the ESP32 switches from its default MANUAL and starts accepting
+        # our movement commands.
+        self._auto_mode_confirmed = False  # becomes True after first send
+        self._mode_request_flag   = 0x01   # AUTO request; cleared after sent
+
         # Parse error tracking
         self._parse_errors = 0
         self._good_parses = 0
@@ -95,6 +109,7 @@ class SerialBridge:
             'bat_voltage': 0.0,     # volts
             'nav_status': 0,        # 0=idle, 1=goto, 2=turn
             'nav_progress': 0.0,    # 0.0–1.0
+            'drive_mode': 0,        # 0=MANUAL, 1=AUTO (field [20])
         }
 
     def connect(self):
@@ -140,6 +155,10 @@ class SerialBridge:
                         line = line.strip()
                         if line.startswith("SEN:"):
                             self._parse_sensor_data(line)
+                        # ACK lines ([MODE], [NAV], [ODOM], [IMU], etc.) are
+                        # informational only — log at debug level and skip.
+                        elif line.startswith('['):
+                            log.debug(f"ESP32 ACK: {line}")
 
                     # Prevent buffer from growing unbounded on garbage input
                     if len(buffer) > 2048:
@@ -216,6 +235,7 @@ class SerialBridge:
                 'bat_voltage':   float(parts[17]) if len(parts) > 17 else 0.0,
                 'nav_status':    int(parts[18])   if len(parts) > 18 else 0,
                 'nav_progress':  float(parts[19]) if len(parts) > 19 else 0.0,
+                'drive_mode':    int(parts[20])   if len(parts) > 20 else 0,  # 0=MANUAL 1=AUTO
             }
 
             # ESP32 sends lead_dist=0 when ultrasonic is out-of-range.
@@ -254,9 +274,14 @@ class SerialBridge:
         """
         Send a motor command to ESP32.
 
+        On the FIRST call, flag 0x01 (request AUTO mode) is OR'd into the
+        command flags so the ESP32 switches from its default MANUAL and
+        begins accepting movement from us.  The flag is cleared after one
+        successful send.
+
         Args:
             command: Command object with .to_serial() method,
-                     or a raw string like "CMD:0,150,0"
+                     or a raw string like "CMD:0,0,0"
         """
         if self._serial is None or not self._serial.is_open:
             return False
@@ -269,7 +294,13 @@ class SerialBridge:
 
         try:
             if hasattr(command, 'to_serial'):
+                # Inject AUTO mode handshake flag on first send
+                if not self._auto_mode_confirmed:
+                    command.flags |= self._mode_request_flag  # set 0x01
                 cmd_str = command.to_serial()
+                if not self._auto_mode_confirmed:
+                    self._auto_mode_confirmed = True
+                    log.info("[MODE] AUTO handshake sent to ESP32")
             else:
                 cmd_str = str(command)
 

@@ -28,7 +28,7 @@ SERIAL_PORT = "/dev/ttyUSB0"
 BAUD_RATE = 115200
 SERIAL_TIMEOUT = 0.01         # Non-blocking reads (10ms)
 COMMAND_INTERVAL = 0.05       # Send commands every 50ms (20Hz)
-WATCHDOG_TIMEOUT_MS = 500     # ESP32 stops motors if no command for 500ms
+WATCHDOG_TIMEOUT_MS = 1500    # ESP32 motor watchdog: 1500ms in AUTO mode
 
 # ─── Lane Detection (LDW + LKA) ──────────────────────────────────────────────
 # Tuned for INDOOR track: black chart paper floor, white insulation tape lanes.
@@ -146,17 +146,20 @@ TSR_SIGN_NAMES = {
     42: "End no passing >3.5t",
 }
 
-# Speed limit mappings (sign class → max speed PWM value)
+# Speed limit mappings (sign class → normalized speed 0.0–1.0)
+# These go directly to Command.speed_y (jd.y on ESP32) without further division.
+# Previously mapped to PWM 0–255 which caused a double-normalization bug
+# (DecisionManager /255 → ACC.set_speed_limit /255 = /65025 effective).
 TSR_SPEED_LIMITS = {
-    0: 50,    # 20 km/h
-    1: 80,    # 30 km/h
-    2: 120,   # 50 km/h
-    3: 150,   # 60 km/h
-    4: 180,   # 70 km/h
-    5: 200,   # 80 km/h
-    7: 230,   # 100 km/h
-    8: 255,   # 120 km/h
-    14: 0,    # Stop sign → stop
+    0:  0.20,   # 20 km/h  (very slow)
+    1:  0.31,   # 30 km/h
+    2:  0.47,   # 50 km/h
+    3:  0.59,   # 60 km/h
+    4:  0.71,   # 70 km/h
+    5:  0.78,   # 80 km/h
+    7:  0.90,   # 100 km/h
+    8:  1.00,   # 120 km/h (full speed)
+    14: 0.0,    # Stop sign → stop
 }
 
 # ─── Pothole Detection ────────────────────────────────────────────────────────

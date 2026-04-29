@@ -102,14 +102,15 @@ void motorTask(void *pvParameters) {
     posY = ekf_y;
     distTraveled += fabsf(v_linear * dt);
 
-    // Watchdog: kill motors if no command received in 1s.
-    // We check ws.count() only when WiFi is connected — if Wi-Fi is
-    // disconnected AND no Serial commands are coming, the RPi link is dead.
-    bool serialDead = (millis() - lastWsMessage > 1000);
-    bool wifiLost = serialDead && (WiFi.status() == WL_CONNECTED ? true : ws.count() > 0);
-    bool obstacle = (distanceCm < AUTO_STOP_DIST);
+    // ── Watchdog / safety gates ─────────────────────────────────────────────
+    // In MANUAL: kill if dashboard goes silent for >2 s (WS heartbeat expected).
+    // In AUTO:   kill if RPi goes silent for >1.5 s (handled in loop() watchdog,
+    //            but also enforce here as a second layer).
+    bool manualWdFired = (driveMode == MODE_MANUAL) && (millis() - lastWsMessage > 2000);
+    bool autoWdFired   = (driveMode == MODE_AUTO)   && (millis() - lastSerialCmd > 1500);
+    bool obstacle      = (distanceCm < AUTO_STOP_DIST);
 
-    if (eStopActive || wifiLost || obstacle) {
+    if (eStopActive || manualWdFired || autoWdFired || obstacle) {
       currentL_PWM = 0;
       currentR_PWM = 0;
       pidL.reset();
@@ -211,28 +212,29 @@ void motorTask(void *pvParameters) {
           }
         }
       } else {
-        navStatus = 0;
+        // NAV_IDLE — manual joystick control
+        navStatus  = 0;
         navProgress = 0.0f;
+
+        // Always drain the queue (it may hold an AUTO CMD or a MANUAL jd).
+        // In AUTO mode the serialParserTask already wrote the correct jd.
+        // In MANUAL mode the WsHandler wrote it.
         xQueueReceive(controlQueue, &jd, 0);
 
-        float targetVL = (jd.y + jd.x);
-        float targetVR = (jd.y - jd.x);
-
-        targetVL = constrain(targetVL, -1.0f, 1.0f);
-        targetVR = constrain(targetVR, -1.0f, 1.0f);
+        float targetVL = constrain(jd.y + jd.x, -1.0f, 1.0f);
+        float targetVR = constrain(jd.y - jd.x, -1.0f, 1.0f);
 
         auto applyOpenLoop = [](float val, float maxPwm) -> int {
           if (fabsf(val) < 0.05f) return 0;
-          int sign = (val > 0) ? 1 : -1;
-          int floorPwm = 150; // Requested MIN PWM
+          int sign     = (val > 0) ? 1 : -1;
+          int floorPwm = 150;
           if (maxPwm < floorPwm) floorPwm = maxPwm;
           return sign * (floorPwm + (int)((fabsf(val) - 0.05f) * (maxPwm - floorPwm) / 0.95f));
         };
 
-        const int MAX_PWM_VAL = 255;
-        int pwmCeil = (int)(baseSpeed * MAX_PWM_VAL);
-        currentL_PWM = applyOpenLoop(targetVL, pwmCeil);
-        currentR_PWM = applyOpenLoop(targetVR, pwmCeil);
+        int pwmCeil    = (int)(baseSpeed * 255.0f);
+        currentL_PWM   = applyOpenLoop(targetVL, pwmCeil);
+        currentR_PWM   = applyOpenLoop(targetVR, pwmCeil);
       }
     }
 

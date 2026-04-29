@@ -1,5 +1,8 @@
 #include "Globals.h"
 
+// ─── Drive Mode
+volatile DriveMode driveMode = MODE_MANUAL; // boots in MANUAL
+
 // Credentials
 const char *ssid = "taralab";
 const char *password = "tara@579";
@@ -8,6 +11,7 @@ const char *password = "tara@579";
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
 unsigned long lastWsMessage = 0;
+unsigned long lastSerialCmd = 0;
 
 // Encoders
 volatile long pulseLeft = 0;
@@ -44,9 +48,9 @@ float distTraveled = 0.0f;
 // EKF State
 float ekf_x = 0.0f, ekf_y = 0.0f, ekf_theta = 0.0f;
 float P[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
-extern const float Q_pos = 0.001f;
-extern const float Q_theta = 0.0005f;
-extern const float R_theta = 0.5f;
+const float Q_pos   = 0.001f;
+const float Q_theta = 0.0005f;
+const float R_theta = 0.5f;
 
 // Sequence Tracking
 float expectedX = 0.0f;
@@ -91,7 +95,7 @@ volatile bool resetYawPending = false;
 // Sensors
 float distanceCm = 999.0f;
 bool eStopActive = false;
-extern const float AUTO_STOP_DIST = 5.0f; // effectively disabled
+extern const float AUTO_STOP_DIST = 20.0f; // cm — obstacle stop threshold
 float batVoltage = 12.0f;
 
 // Control

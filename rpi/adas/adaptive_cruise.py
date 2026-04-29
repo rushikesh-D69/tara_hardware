@@ -60,15 +60,16 @@ class AdaptiveCruiseControl:
 
     # ── Public API ────────────────────────────────────────────────────────────
 
-    def set_speed_limit(self, speed_limit_pwm):
+    def set_speed_limit(self, speed_limit_norm):
         """
         Apply a TSR-derived speed cap.
 
         Args:
-            speed_limit_pwm: PWM value from config.TSR_SPEED_LIMITS, or None to clear
+            speed_limit_norm: Normalized speed 0.0–1.0 from config.TSR_SPEED_LIMITS.
+                              Already normalized — do NOT divide by 255 here.
         """
-        if speed_limit_pwm is not None:
-            self._tsr_speed_limit_norm = speed_limit_pwm / 255.0
+        if speed_limit_norm is not None:
+            self._tsr_speed_limit_norm = float(speed_limit_norm)
             log.info(f"ACC: TSR speed limit → {self._tsr_speed_limit_norm:.2f} (norm)")
         else:
             self._tsr_speed_limit_norm = None
