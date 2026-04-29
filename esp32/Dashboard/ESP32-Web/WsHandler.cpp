@@ -155,6 +155,7 @@ void onWsEvent(AsyncWebSocket *srv, AsyncWebSocketClient *client,
     const char *m = doc["mode"] | "manual";
     if (strcmp(m, "auto") == 0) {
       driveMode = MODE_AUTO;
+      lastRpiCmd = millis();   // reset watchdog — give RPi 5 s to connect & send
       JoyData stop = {0.0f, 0.0f};
       xQueueOverwrite(controlQueue, &stop);
       Serial.printf("[MODE] AUTO (client #%u %s)\n", cid,
