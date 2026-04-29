@@ -257,7 +257,6 @@ class TARAAdas:
         # Overlay lane detection debug if available
         if self._last_lane and self._last_lane.debug_frame is not None:
             debug_small = self._last_lane.debug_frame
-            # Place lane debug in top-left corner
             dh, dw = debug_small.shape[:2]
             display[0:dh, 0:dw] = debug_small
 
@@ -265,14 +264,12 @@ class TARAAdas:
         panel_x = display.shape[1] - 220
         panel_y = 10
 
-        # Background panel
         overlay = display.copy()
         cv2.rectangle(overlay, (panel_x - 10, panel_y - 5),
                       (display.shape[1] - 5, panel_y + 200),
                       (0, 0, 0), -1)
         display = cv2.addWeighted(display, 0.7, overlay, 0.3, 0)
 
-        # Status lines
         texts = [
             f"FPS: {self.fps.fps():.1f}",
             f"Frame: {self.frame_num}",
@@ -281,7 +278,7 @@ class TARAAdas:
             "---",
         ]
 
-        # Lane status
+        # Lane
         if self._last_lane:
             lane_status = "DETECTED" if self._last_lane.lane_detected else "LOST"
             texts.append(f"Lane: {lane_status}")
@@ -289,45 +286,47 @@ class TARAAdas:
             if self._last_lane.departure_warning:
                 texts.append("  !! LDW WARNING !!")
 
-        # TSR status
+        # TSR
         if self._last_tsr and self._last_tsr.sign_detected:
             texts.append(f"TSR: {self._last_tsr.class_name}")
             texts.append(f"  Conf: {self._last_tsr.confidence:.2f}")
         else:
             texts.append("TSR: --")
 
-        # Pothole status
+        # Pothole
         if self._last_pothole and self._last_pothole.pothole_detected:
             texts.append(f"POTHOLE: {self._last_pothole.position}")
         else:
             texts.append("Pothole: clear")
 
-        # ACC status
+        # ACC — vision-only, shows speed setpoint only (no distance)
         if self._last_acc:
             texts.append(f"ACC: {self._last_acc.mode}")
-            texts.append(f"  Dist: {self._last_acc.distance_cm:.0f}cm")
+            texts.append(f"  Speed: {self._last_acc.speed_norm:.2f}")
 
-        # TL status
+        # Traffic light
         if self._last_tl and self._last_tl.detected:
             texts.append(f"TL: {self._last_tl.state}")
             texts.append(f"  Conf: {self._last_tl.confidence:.3f}")
         else:
             texts.append("TL: --")
 
-        # Render text
         for i, text in enumerate(texts):
             color = (0, 255, 0)
             if "WARNING" in text or "POTHOLE" in text:
                 color = (0, 0, 255)
-            elif "LOST" in text or "E_STOP" in text:
+            elif "LOST" in text:
                 color = (0, 100, 255)
             cv2.putText(display, text, (panel_x, panel_y + 15 + i * 15),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.35, color, 1)
 
-        cv2.imshow("TARA ADAS", display)
-        key = cv2.waitKey(1) & 0xFF
-        if key == ord('q'):
-            self.running = False
+        try:
+            cv2.imshow("TARA ADAS", display)
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('q'):
+                self.running = False
+        except cv2.error:
+            pass  # headless opencv — no GUI available
 
 
     def stop(self):
