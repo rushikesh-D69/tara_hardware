@@ -176,7 +176,7 @@ void motorTask(void *pvParameters) {
         auto applyOpenLoop = [](float val, float maxPwm) -> int {
           if (fabsf(val) < 0.05f) return 0;
           int sign     = (val > 0) ? 1 : -1;
-          int floorPwm = 150;
+          int floorPwm = 135; // Lowered from 150 for smoother slow-speed crawl
           if (maxPwm < floorPwm) floorPwm = maxPwm;
           return sign * (floorPwm + (int)((fabsf(val) - 0.05f) * (maxPwm - floorPwm) / 0.95f));
         };

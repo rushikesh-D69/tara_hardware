@@ -212,6 +212,7 @@ void onWsEvent(AsyncWebSocket *srv, AsyncWebSocketClient *client,
 
   // ── MANUAL-only commands ─────────────────────────────────────────────────
   if (strcmp(cmd, "drive") == 0) {
+    navMode = NAV_IDLE; // Manual override: kill any active GOTO/TURN/SEQ
     JoyData jd = {(float)doc["x"], (float)doc["y"]};
     xQueueOverwrite(controlQueue, &jd);
   }
