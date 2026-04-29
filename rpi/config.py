@@ -27,7 +27,7 @@ PROC_HEIGHT = 240
 # ─── ESP32 WiFi / WebSocket ──────────────────────────────────────────────────────────────────────────────────────
 # All three nodes (ESP32, RPi, Dashboard PC) on the same WiFi network.
 # The RPi connects to the ESP32’s built-in WebSocket server.
-ESP32_HOST    = "192.168.1.100"   # ← SET THIS to your ESP32’s IP address
+ESP32_HOST    = "192.168.43.40"   # ← SET THIS to your ESP32’s IP address
 ESP32_WS_PORT = 80                # HTTP/WS port (ESP32 AsyncWebServer default)
 ESP32_WS_PATH = "/ws"             # WebSocket endpoint path
 COMMAND_INTERVAL = 0.05           # Target send rate: 50 ms = 20 Hz
