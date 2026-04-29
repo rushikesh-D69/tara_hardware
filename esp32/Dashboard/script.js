@@ -205,13 +205,15 @@ function stopCameraStream() {
 }
 
 if (piCameraStream) {
-    // Show offline placeholder by default
-    stopCameraStream();
+    // Initial attempt to connect
+    startCameraStream();
 
     piCameraStream.onerror = () => {
-        // Stream went offline — show placeholder, retry in 5s
+        // Stream failed to load — show placeholder and retry in 5s
         if (streamWrapper) streamWrapper.classList.add('stream-offline');
         piCameraStream.style.display = 'none';
+        
+        console.warn(`[TÁRA] Camera stream failed at ${RPI_STREAM_URL}. Retrying in 5s...`);
         setTimeout(startCameraStream, 5000);
     };
 }
