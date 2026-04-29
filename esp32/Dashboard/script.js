@@ -7,9 +7,11 @@
    1. CONFIGURATION & DOM ELEMENTS
    ========================================= */
 
-// CHANGE THIS TO YOUR ESP32's IP ADDRESS
-const TARA_IP = "192.168.43.40";
-const WEBSOCKET_URL = `ws://${TARA_IP}/ws`;
+// CHANGE THESE TO MATCH YOUR NETWORK
+const TARA_IP      = "192.168.43.40";   // ← ESP32 IP
+const RPI_IP       = "192.168.43.88";   // ← Raspberry Pi IP
+const WEBSOCKET_URL  = `ws://${TARA_IP}/ws`;
+const RPI_STREAM_URL = `http://${RPI_IP}:5000/stream`;  // MJPEG debug stream
 
 // --- Header ---
 const statusBadge = document.getElementById('connection-status');
@@ -183,10 +185,40 @@ function connectWebSocket() {
 
 connectWebSocket();
 
-// Auto-connect to Pi Camera Stream
-if (piCameraStream) {
-    piCameraStream.src = `http://192.168.43.88:5000/video_feed`;
+// ── Pi Camera MJPEG Stream ──────────────────────────────────────────────────
+// Streams the annotated debug frame from RPi when running: python3 main.py --debug
+// To enable: run RPi with --debug flag, stream appears at http://RPI_IP:5000/
+const streamWrapper = document.querySelector('.camera-stream-wrapper');
+
+function startCameraStream() {
+    if (!piCameraStream) return;
+    piCameraStream.src = RPI_STREAM_URL;
+    piCameraStream.style.display = 'block';
+    if (streamWrapper) streamWrapper.classList.remove('stream-offline');
 }
+
+function stopCameraStream() {
+    if (!piCameraStream) return;
+    piCameraStream.src = '';
+    piCameraStream.style.display = 'none';
+    if (streamWrapper) streamWrapper.classList.add('stream-offline');
+}
+
+if (piCameraStream) {
+    // Show offline placeholder by default
+    stopCameraStream();
+
+    piCameraStream.onerror = () => {
+        // Stream went offline — show placeholder, retry in 5s
+        if (streamWrapper) streamWrapper.classList.add('stream-offline');
+        piCameraStream.style.display = 'none';
+        setTimeout(startCameraStream, 5000);
+    };
+}
+
+// Expose globally so user can toggle from console if needed
+window.startCameraStream = startCameraStream;
+window.stopCameraStream  = stopCameraStream;
 
 
 /* =========================================

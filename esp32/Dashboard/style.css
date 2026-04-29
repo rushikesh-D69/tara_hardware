@@ -1419,6 +1419,61 @@ input[type="range"]::-moz-range-thumb {
     }
 }
 
+/* ─── CAMERA STREAM (Panel 5) ────────────────────────────────────────────────── */
+
+.camera-stream-wrapper {
+    position: relative;
+    width: 100%;
+    background: #070b14;
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    margin-bottom: 12px;
+    min-height: 160px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Live stream image */
+.camera-stream-wrapper img {
+    width: 100%;
+    height: auto;
+    display: block;
+    border-radius: var(--radius-sm);
+}
+
+/* Offline placeholder — shown when stream is down */
+.camera-stream-wrapper.stream-offline::after {
+    content: '📷  Camera stream offline\A Run RPi with --debug flag';
+    white-space: pre;
+    color: var(--text-dim);
+    font-size: 0.75rem;
+    font-family: var(--font-mono);
+    text-align: center;
+    line-height: 2;
+    padding: 24px;
+}
+
+/* Start stream button shown in offline state */
+.btn-stream-start {
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
+    background: rgba(56,189,248,0.15);
+    border: 1px solid var(--border-accent);
+    color: var(--accent);
+    font-size: 0.72rem;
+    font-family: var(--font-mono);
+    padding: 4px 10px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: background var(--transition-fast);
+    z-index: 2;
+}
+.btn-stream-start:hover {
+    background: rgba(56,189,248,0.28);
+}
+
 /* ─── COMMAND LOG PANEL ─────────────────────────────────────────────────────── */
 
 .log-panel {
