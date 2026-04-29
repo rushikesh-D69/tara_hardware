@@ -444,7 +444,6 @@ function resetStick() {
     stick.style.transform = 'translate(0px, 0px)';
     stick.style.transition = 'transform 0.15s ease-out';
 
-    currentX = 0;
     currentY = 0;
     joyXText.textContent = "0";
     joyYText.textContent = "0";
@@ -525,33 +524,26 @@ let _txDriveCount = 0;
 
 function sendCommand(cmd) {
     if (isConnected && ws.readyState === WebSocket.OPEN) {
-        let payload;
-        if (typeof cmd === 'string') {
-            payload = cmd;
-            ws.send(payload);
-        } else {
-            payload = JSON.stringify(cmd);
-            ws.send(payload);
-        }
+        let payload = (typeof cmd === 'string') ? cmd : JSON.stringify(cmd);
+        ws.send(payload);
 
         // ── Log with smart filtering ─────────────────────────────────────
-        const type = (typeof cmd === 'object') ? cmd.type : 'raw';
+        const obj  = (typeof cmd === 'object') ? cmd : null;
+        const type = obj ? obj.type : (payload.startsWith('CMD:') ? 'drive' : 'raw');
 
-        if (type === 'heartbeat') {
-            // suppress — too noisy
-        } else if (type === 'raw' || payload.startsWith('CMD:')) {
-            // Joystick drive: show every 20th (1 Hz)
+        if (type === 'heartbeat' || type === 'auto_cmd' || type === 'rpi_cmd') {
+            return; // Don't log noisy automated commands
+        }
+
+        if (type === 'drive') {
             _txDriveCount++;
-            if (_txDriveCount % 20 === 1) {
-                cmdLog('tx', `drive ${payload}`);
+            if (_txDriveCount % 20 === 1) { // Log drive status at ~1Hz
+                const x = obj ? obj.x : parseFloat(payload.split(':')[1].split(',')[0]);
+                const y = obj ? obj.y : parseFloat(payload.split(':')[1].split(',')[1]);
+                cmdLog('tx', `drive CMD: x=${x.toFixed(2)}, y=${y.toFixed(2)}, spd=${currentBaseSpeed.toFixed(2)}`);
             }
-        } else if (type === 'estop') {
-            cmdLog(cmd.state ? 'err' : 'sys',
-                   `ESTOP ${cmd.state ? 'ENGAGED ⚠' : 'RELEASED'}`);
-        } else if (type === 'set_mode') {
-            cmdLog('sys', `↻ mode → ${cmd.mode.toUpperCase()}`);
         } else {
-            cmdLog('tx', payload);
+            cmdLog('tx', `→ ${type}: ${payload}`);
         }
     }
 }
@@ -562,12 +554,16 @@ setInterval(() => {
     if (!isConnected || ws.readyState !== WebSocket.OPEN) return;
 
     if (!autoMode) {
-        // MANUAL: send joystick position at 20 Hz
-        sendCommand(`CMD:${currentX},${currentY},${eStopEngaged ? 4 : 0}`);
+        // MANUAL: send joystick position at 20 Hz as JSON
+        sendCommand({ 
+            type: 'drive', 
+            x: currentX, 
+            y: currentY,
+            eStop: eStopEngaged
+        });
     }
-    // AUTO: movement comes from RPi — just keep WS watchdog alive via heartbeat
 
-    // Heartbeat every 1 s (20 ticks × 50 ms) regardless of mode
+    // Heartbeat every 1s
     heartbeatTick++;
     if (heartbeatTick >= 20) {
         sendCommand({ type: 'heartbeat' });
