@@ -138,9 +138,11 @@ class WsBridge:
         self._last_send_time = now
 
         try:
-            if hasattr(command, "steer") and hasattr(command, "speed"):
-                x = round(max(-1.0, min(1.0, command.steer)), 4)
-                y = round(max( 0.0, min(1.0, command.speed)), 4)
+            if hasattr(command, "to_ws"):
+                payload = json.dumps(command.to_ws())
+            elif hasattr(command, "steer_x") and hasattr(command, "speed_y"):
+                x = round(max(-1.0, min(1.0, command.steer_x)), 4)
+                y = round(max( 0.0, min(1.0, command.speed_y)), 4)
                 payload = json.dumps({"type": "auto_cmd", "x": x, "y": y})
             elif isinstance(command, dict):
                 payload = json.dumps(command)
