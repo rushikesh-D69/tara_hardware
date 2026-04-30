@@ -141,7 +141,8 @@ class DecisionManager:
     # ─────────────────────────────────────────────────────────────────────────
 
     def update(self, lane_result=None, tsr_result=None,
-               pothole_result=None, acc_result=None, tl_result=None):
+               pothole_result=None, acc_result=None, tl_result=None,
+               sign_hint=None):
         """
         Combine ADAS module outputs into a single Command.
 
@@ -233,6 +234,16 @@ class DecisionManager:
         # ── Assemble base command from LKA + ACC ──────────────────────────
         raw_steer = self._last_steer_x
         raw_speed = self._last_speed_y
+
+        # ── OpenCV Sign Hint (Landmark Navigation Override) ───────────────
+        if sign_hint == "LEFT":
+            self._last_steer_x = -0.75  # Force left bias
+            raw_speed *= 0.5            # Slow down significantly for the turn
+            log.info("SIGN HINT: Detected Turn LEFT sign — biasing steering")
+        elif sign_hint == "RIGHT":
+            self._last_steer_x = 0.75   # Force right bias
+            raw_speed *= 0.5            # Slow down significantly for the turn
+            log.info("SIGN HINT: Detected Turn RIGHT sign — biasing steering")
 
         # ── Dynamic Speed Reduction (Turn Compensation) ──────────────────
         # Reduce speed by up to 60% based on steering severity

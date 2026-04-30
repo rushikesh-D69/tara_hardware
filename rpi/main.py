@@ -37,6 +37,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import config
 from camera.capture import CameraCapture
 from adas.lane_detection import LaneDetector
+from adas.sign_detector_cv import SignDetectorCV
 from adas.traffic_sign import TrafficSignRecognizer
 from adas.pothole_detection import PotholeDetector
 from adas.adaptive_cruise import AdaptiveCruiseControl
@@ -153,6 +154,7 @@ class TARAAdas:
 
         # ADAS modules
         self.lane_detector = LaneDetector(config)
+        self.sign_detector = SignDetectorCV(config)
         self.tsr = TrafficSignRecognizer(config)
         self.pothole_detector = PotholeDetector(config)
         self.acc = AdaptiveCruiseControl(config)
@@ -179,6 +181,7 @@ class TARAAdas:
 
         # Latest results (persist between frames for non-scheduled modules)
         self._last_lane = None
+        self._last_sign_hint = None
         self._last_tsr = None
         self._last_pothole = None
         self._last_acc = None
@@ -281,10 +284,17 @@ class TARAAdas:
             self._last_tl = self.tl_detector.detect(frame)
             self.fps.stop_module(t)
 
+        # ── Always run (or every 2nd frame): OpenCV Sign Detector ───────
+        if cycle_pos % 2 == 1:
+            t = self.fps.start_module("SignCV")
+            self._last_sign_hint = self.sign_detector.detect(frame)
+            self.fps.stop_module(t)
+
         # ── Always run: Decision Manager ──────────────────────────────────
         t = self.fps.start_module("Decision")
         command = self.decision_manager.update(
             lane_result=self._last_lane,
+            sign_hint=self._last_sign_hint,
             tsr_result=self._last_tsr,
             pothole_result=self._last_pothole,
             acc_result=self._last_acc,
