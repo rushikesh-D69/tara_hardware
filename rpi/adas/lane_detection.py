@@ -73,7 +73,7 @@ class LaneDetector:
 
         # Sliding window parameters
         self._n_windows = 12           # number of sliding windows
-        self._window_margin = 40       # half-width of each window (pixels)
+        self._window_margin = 70       # half-width of each window (pixels)
         self._min_pix_recenter = 30    # minimum pixels to recenter window
 
         # Lane smoothing — deques for O(1) popleft
@@ -482,7 +482,7 @@ class LaneDetector:
             result.lane_detected = True
             left_x = np.polyval(left_fit, eval_y)
             # Assume lane width is ~55% of BEV frame width
-            estimated_lane_width = 0.40 * self.proc_w
+            estimated_lane_width = 0.45 * self.proc_w
             lane_center_x = left_x + estimated_lane_width / 2
             result.lane_center_offset = lane_center_x - frame_center_x
             result.confidence = min(0.7, left_pixels / 500.0)
@@ -491,7 +491,7 @@ class LaneDetector:
             # Only right lane — estimate center
             result.lane_detected = True
             right_x = np.polyval(right_fit, eval_y)
-            estimated_lane_width = 0.40 * self.proc_w
+            estimated_lane_width = 0.45 * self.proc_w
             lane_center_x = right_x - estimated_lane_width / 2
             result.lane_center_offset = lane_center_x - frame_center_x
             result.confidence = min(0.7, right_pixels / 500.0)

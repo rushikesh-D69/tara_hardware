@@ -38,7 +38,7 @@ COMMAND_INTERVAL = 0.05           # Target send rate: 50 ms = 20 Hz
 # Primary lane detection method — adaptive thresholding (robust under indoor lighting)
 LANE_USE_ADAPTIVE_THRESH = True
 LANE_ADAPTIVE_BLOCK_SIZE = 51    # Must be odd. Larger = less sensitive to local brightness variation.
-LANE_ADAPTIVE_C = -25            # Negative = detect pixels brighter than local mean.
+LANE_ADAPTIVE_C = -30            # Negative = detect pixels brighter than local mean.
                                  # More negative = more aggressive white detection.
 
 # Morphological kernel size (for closing gaps + removing noise)
@@ -178,7 +178,7 @@ POTHOLE_STEER_MAGNITUDE = 60  # PWM offset for avoidance
 ACC_EMERGENCY_STOP_DIST = 10   # cm — slam brakes
 ACC_MIN_FOLLOW_DIST = 25       # cm — slow down significantly
 ACC_CRUISE_DIST = 50           # cm — maintain speed
-ACC_DEFAULT_SPEED = 145        # PWM — set to slow crawl for debugging (ESP32 floor is ~135)
+ACC_DEFAULT_SPEED = 50         # PWM — set to slow crawl for debugging (ESP32 floor is ~135)
 ACC_MAX_SPEED = 160            # PWM — absolute max speed for testing
 
 # ACC PID removed — speed control is handled by the ESP32 motor driver.

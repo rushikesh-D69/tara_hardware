@@ -97,7 +97,7 @@ class DecisionManager:
         # has acquired the track.
         self._startup_complete      = False
         self._startup_lane_count    = 0
-        self._startup_required      = 3   # need 3 consecutive lane detections
+        self._startup_required      = 5   # need 5 consecutive lane detections
 
         # Last known values (persisted between scheduled frames)
         self._last_steer_x   = 0.0
@@ -108,12 +108,12 @@ class DecisionManager:
         # Reduced from 0.55 — lane detector already smooths via polynomial history
         self._smooth_steer   = 0.0
         self._smooth_speed   = 0.0   # START at zero (ramp up via EMA once lanes found)
-        self._steer_alpha    = 0.20   # reduced from 0.35 for faster response
-        self._speed_alpha    = 0.60
+        self._steer_alpha    = 0.10   # reduced from 0.20 for maximum response
+        self._speed_alpha    = 0.40   # reduced from 0.60 for faster speed adjustment
 
         # Lane-loss fail-safe
         self._lane_lost_frames    = 0
-        self._lane_lost_threshold = 3
+        self._lane_lost_threshold = 8   # Allow 8 frames of "memory" during sharp turns
 
         # Pothole avoidance state
         self._pothole_active      = False
@@ -201,7 +201,7 @@ class DecisionManager:
                 # steering_correction is already normalized: -1.0 … 1.0
                 # Weight by detection confidence for smoother single-lane behavior
                 # Increase gain for indoor track (proportional steering)
-                steer_gain = 1.2
+                steer_gain = 2.5
                 confidence_weight = getattr(lane_result, 'confidence', 1.0)
                 self._last_steer_x = lane_result.steering_correction * steer_gain * min(1.0, confidence_weight + 0.3)
             else:
@@ -234,19 +234,26 @@ class DecisionManager:
         raw_steer = self._last_steer_x
         raw_speed = self._last_speed_y
 
-        # ── Lane-loss fail-safe ───────────────────────────────────────────
-        if self._lane_lost_frames >= self._lane_lost_threshold:
-            # If lane lost for a short time, slow down and zero the steering
-            raw_speed = min(raw_speed, self._cruise_speed * 0.4)
-            raw_steer = 0.0  # Go straight — don't follow the old curve!
-            
-            if self._lane_lost_frames >= 10:
-                # If lost for too long (0.5s), STOP for safety
-                raw_speed = 0.0
+        # ── Dynamic Speed Reduction (Turn Compensation) ──────────────────
+        # Reduce speed by up to 40% based on steering severity
+        steer_abs = abs(raw_steer)
+        if steer_abs > 0.3:
+            speed_factor = 1.0 - (steer_abs - 0.3) * 0.6
+            raw_speed *= max(0.6, speed_factor)
+
+        # ── Lane-loss / Curve Memory Fail-safe ────────────────────────────
+        if self._lane_lost_frames > 0:
+            # Slow down immediately when lane is unsure
+            raw_speed *= 0.7
+
+            if self._lane_lost_frames < self._lane_lost_threshold:
+                # IMPORTANT: HOLD last known steering during temporary loss
+                # This helps the car "blindly" finish a curve.
+                raw_steer = self._last_steer_x
+            else:
+                raw_steer = 0.0  # Safe stop/straight after too long
                 if self._lane_lost_frames == 10:
                     log.error("LANE LOST for 10 frames — EMERGENCY STOP")
-            elif self._lane_lost_frames == self._lane_lost_threshold:
-                log.warning(f"Lane lost ≥{self._lane_lost_threshold} frames — slowing down and zeroing steering")
 
         # ═══════════════════════════════════════════════════════════════════
         # PHASE 2: Apply exponential smoothing to base command
