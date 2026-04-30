@@ -13,13 +13,12 @@ class SignDetectorCV:
         self.cfg = config
         
         # Blue HSV range — tuned for standard printed blue paper
-        # Hue: 100-140 (Blue), Saturation: 100-255, Value: 50-255
-        self.blue_low = np.array([100, 100, 50])
-        self.blue_high = np.array([140, 255, 255])
+        self.blue_low = np.array(config.SIGN_BLUE_LOW)
+        self.blue_high = np.array(config.SIGN_BLUE_HIGH)
         
         # White HSV range (for the arrow inside the blue circle)
-        self.white_low = np.array([0, 0, 180])
-        self.white_high = np.array([180, 50, 255])
+        self.white_low = np.array(config.SIGN_WHITE_LOW)
+        self.white_high = np.array(config.SIGN_WHITE_HIGH)
 
     def detect(self, frame):
         """
@@ -44,14 +43,14 @@ class SignDetectorCV:
         
         for cnt in contours:
             area = cv2.contourArea(cnt)
-            if area < 400: continue # Skip small blobs
+            if area < self.cfg.SIGN_MIN_AREA: continue # Skip small blobs
             
             # Check circularity: 4*pi*Area / Perimeter^2
             peri = cv2.arcLength(cnt, True)
             if peri == 0: continue
             circularity = 4 * np.pi * area / (peri * peri)
             
-            if circularity > 0.6: # Good enough for a circle
+            if circularity > self.cfg.SIGN_CIRCULARITY_THRESHOLD: # Good enough for a circle
                 # 5. Extract the region of interest (ROI)
                 x, y, bw, bh = cv2.boundingRect(cnt)
                 roi = small[y:y+bh, x:x+bw]

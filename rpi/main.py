@@ -285,7 +285,9 @@ class TARAAdas:
             self.fps.stop_module(t)
 
         # ── Always run (or every 2nd frame): OpenCV Sign Detector ───────
-        if cycle_pos % 2 == 1:
+        # 3. Directional Sign detection (OpenCV fallback)
+        # Runs every 2nd frame for responsive landmark detection
+        if self.frame_num % 2 == 0:
             t = self.fps.start_module("SignCV")
             self._last_sign_hint = self.sign_detector.detect(frame)
             self.fps.stop_module(t)

@@ -269,3 +269,11 @@ TL_GREEN_HIGH = (90, 255, 255)
 # Shape validation
 TL_MIN_CIRCULARITY = 0.5     # 0.0–1.0, reject non-circular blobs
 TL_MIN_CONTOUR_AREA = 200    # minimum contour area in pixels
+
+# ─── OpenCV Sign Detection ────────────────────────────────────────────────────
+SIGN_BLUE_LOW = (100, 100, 50)
+SIGN_BLUE_HIGH = (140, 255, 255)
+SIGN_WHITE_LOW = (0, 0, 180)
+SIGN_WHITE_HIGH = (180, 50, 255)
+SIGN_MIN_AREA = 400
+SIGN_CIRCULARITY_THRESHOLD = 0.6
