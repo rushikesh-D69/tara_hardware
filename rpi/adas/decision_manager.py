@@ -201,7 +201,7 @@ class DecisionManager:
                 # steering_correction is already normalized: -1.0 … 1.0
                 # Weight by detection confidence for smoother single-lane behavior
                 # Increase gain for indoor track (proportional steering)
-                steer_gain = 2.5
+                steer_gain = 2.0
                 confidence_weight = getattr(lane_result, 'confidence', 1.0)
                 self._last_steer_x = lane_result.steering_correction * steer_gain * min(1.0, confidence_weight + 0.3)
             else:
@@ -235,11 +235,11 @@ class DecisionManager:
         raw_speed = self._last_speed_y
 
         # ── Dynamic Speed Reduction (Turn Compensation) ──────────────────
-        # Reduce speed by up to 40% based on steering severity
+        # Reduce speed by up to 60% based on steering severity
         steer_abs = abs(raw_steer)
         if steer_abs > 0.3:
-            speed_factor = 1.0 - (steer_abs - 0.3) * 0.6
-            raw_speed *= max(0.6, speed_factor)
+            speed_factor = 1.0 - (steer_abs - 0.3) * 0.8
+            raw_speed *= max(0.4, speed_factor)
 
         # ── Lane-loss / Curve Memory Fail-safe ────────────────────────────
         if self._lane_lost_frames > 0:

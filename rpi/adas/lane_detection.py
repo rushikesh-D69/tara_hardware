@@ -157,8 +157,8 @@ class LaneDetector:
         horiz_lines = cv2.morphologyEx(bev_mask, cv2.MORPH_OPEN, self._horiz_reject_kernel)
         bev_mask = cv2.subtract(bev_mask, horiz_lines)
 
-        # Mask top 25% of BEV — distant region is noisy after warp
-        sky_cutoff = int(self.proc_h * 0.25)
+        # Mask top 10% of BEV — distant region is noisy after warp
+        sky_cutoff = int(self.proc_h * 0.10)
         bev_mask[:sky_cutoff, :] = 0
 
         # Step 5: Find lane bases using histogram

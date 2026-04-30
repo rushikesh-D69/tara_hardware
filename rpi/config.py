@@ -82,8 +82,8 @@ LANE_DEPARTURE_THRESHOLD = 30  # pixels from center
 # Adjust these after checking a sample frame from your camera.
 BEV_SRC_RATIOS = [
     (0.00, 1.00),   # bottom-left  — full width at ground level
-    (0.30, 0.55),   # top-left     — narrower toward horizon
-    (0.70, 0.55),   # top-right
+    (0.20, 0.65),   # top-left     — lower horizon, wider view
+    (0.80, 0.65),   # top-right
     (1.00, 1.00),   # bottom-right
 ]
 BEV_DST_RATIOS = [
