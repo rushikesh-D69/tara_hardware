@@ -134,10 +134,13 @@ class DecisionManager:
         self._tsr_expiry_sec      = 10.0   # clear speed cap after 10s of no re-detection
 
         # ── Sign Turn Maneuver State ──────────────────────────────────
-        # Once a sign is seen, hold the bias for a set duration.
+        # Phase 1: DELAY (Wait until car reaches the turn point)
+        # Phase 2: TURN  (Execute the sharp steer)
         self._sign_turn_active     = False
         self._sign_turn_direction  = None
         self._sign_turn_start_time = 0.0
+        
+        self._sign_turn_delay_sec  = getattr(config, 'SIGN_TURN_DELAY_SEC', 1.0)
         self._sign_turn_hold_sec   = getattr(config, 'SIGN_TURN_HOLD_SEC', 1.5)
 
         # Perception health
@@ -246,7 +249,7 @@ class DecisionManager:
         if sign_hint in ["LEFT", "RIGHT"]:
             # Trigger or refresh the maneuver
             if not self._sign_turn_active or self._sign_turn_direction != sign_hint:
-                log.info(f"SIGN MANEUVER: Started Turn {sign_hint} hold")
+                log.info(f"SIGN DETECTED: {sign_hint} — Entering {self._sign_turn_delay_sec}s DELAY phase")
             
             self._sign_turn_active = True
             self._sign_turn_direction = sign_hint
@@ -255,15 +258,25 @@ class DecisionManager:
         # Apply maneuver if active
         if self._sign_turn_active:
             elapsed = now - self._sign_turn_start_time
-            if elapsed < self._sign_turn_hold_sec:
-                # Force steering bias based on direction
-                bias = -0.75 if self._sign_turn_direction == "LEFT" else 0.75
-                self._last_steer_x = bias
-                raw_speed *= 0.5   # Slow down for the turn
+            total_duration = self._sign_turn_delay_sec + self._sign_turn_hold_sec
+            
+            if elapsed < self._sign_turn_delay_sec:
+                # ── PHASE 1: DELAY ──────────────────────────────────────────
+                # Keep following lanes or go straight, but slow down in preparation
+                raw_speed *= 0.8 
+                # We do NOT override steer here; let LKA handle the straight bit
+            elif elapsed < total_duration:
+                # ── PHASE 2: SHARP TURN ─────────────────────────────────────
+                if elapsed - self._sign_turn_delay_sec < 0.1: # Just started phase 2
+                    log.info(f"SIGN MANEUVER: Executing SHARP {self._sign_turn_direction} turn")
                 
-                # Update raw values for smoothing
+                # Force very hard steering bias (90-degree-like turn)
+                bias = -0.95 if self._sign_turn_direction == "LEFT" else 0.95
+                self._last_steer_x = bias
+                raw_speed *= 0.4   # Slow down even more for the sharp pivot
+                
+                # Update raw values to bypass LKA
                 raw_steer = bias
-                # Note: raw_speed is already reduced above
             else:
                 self._sign_turn_active = False
                 log.info(f"SIGN MANEUVER: Completed Turn {self._sign_turn_direction}")

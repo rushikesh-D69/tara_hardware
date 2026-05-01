@@ -277,4 +277,5 @@ SIGN_WHITE_LOW = (0, 0, 180)
 SIGN_WHITE_HIGH = (180, 50, 255)
 SIGN_MIN_AREA = 150              # Lowered from 400 for earlier detection
 SIGN_CIRCULARITY_THRESHOLD = 0.5 # Lowered from 0.6 for robustness at angles
-SIGN_TURN_HOLD_SEC = 1.5         # How long to hold the steering bias after detection
+SIGN_TURN_DELAY_SEC = 1.0        # Delay before starting the sharp turn
+SIGN_TURN_HOLD_SEC = 1.2         # Duration of the sharp "90-degree" steer
