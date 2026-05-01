@@ -57,8 +57,8 @@ CROP_RATIO = 0.6
 
 # Minimum total white pixels to consider "lane is visible"
 # Below this -> lane is LOST -> trigger turn logic
-# Depends on resolution and tape width. Start with 500, tune up/down.
-LANE_LOST_THRESHOLD = 500
+# Increased from 500 to 1200 to be more sensitive at corners.
+LANE_LOST_THRESHOLD = 1200
 
 # Steering values sent to ESP32 (normalized -1.0 to 1.0)
 STEER_STRAIGHT = 0.0
@@ -77,8 +77,8 @@ CRUISE_SPEED = 0.45
 TURN_SPEED = 0.35
 
 # How long to hold a hard turn when lane is lost (seconds)
-# Too short = doesn't complete the 90 degree turn. Too long = overshoots.
-TURN_HOLD_TIME = 0.8
+# Increased from 0.8 to 1.5 to ensure it completes 90-degree turns.
+TURN_HOLD_TIME = 1.5
 
 # Minimum "dominance" ratio for center to count as STRAIGHT
 # If center has > this fraction of total white pixels -> go straight
