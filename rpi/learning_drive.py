@@ -36,12 +36,14 @@ SPEED = 0.45
 TURN_SPEED = 0.35
 
 def get_key():
-    """Captures a single keypress from the terminal."""
+    """Captures a single keypress or arrow key escape sequence."""
     fd = sys.stdin.fileno()
     old_settings = termios.tcgetattr(fd)
     try:
         tty.setraw(sys.stdin.fileno())
         ch = sys.stdin.read(1)
+        if ch == '\x1b':  # Escape sequence (e.g. arrows)
+            ch += sys.stdin.read(2)
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
     return ch
@@ -59,36 +61,35 @@ def run_learning_mode():
     print("\n" + "="*50)
     print("  TARA LEARNING MODE - RECORDING")
     print("="*50)
-    print("  Controls: [w]=Forward, [a]=Left, [d]=Right, [s]=Stop")
-    print("  Press [q] to FINISH and start PLAYBACK.")
+    print("  Controls: [Arrow Keys] to drive, [q] to Playback")
     print("="*50)
 
     try:
         # --- PHASE 1: RECORDING ---
         while recording:
-            key = get_key().lower()
+            key = get_key()
             now = time.time()
 
             # If we were already moving, save the duration of that move
             if current_move is not None and start_time is not None:
                 duration = now - start_time
                 recorded_sequence.append((current_move, duration))
-                print(f"  [SAVED] Move {current_move} for {duration:.2f}s")
+                # print(f"  [SAVED] Move {current_move} for {duration:.2f}s")
 
-            # Update to the new move
-            if key == 'w':
+            # Detect Keys / Arrow Sequences
+            if key == '\x1b[A': # UP
                 current_move = (0.0, SPEED)
-                print("  [INPUT] Forward")
-            elif key == 'a':
+                print("  [INPUT] Forward (Up Arrow)")
+            elif key == '\x1b[D': # LEFT
                 current_move = (-0.9, TURN_SPEED)
-                print("  [INPUT] Left")
-            elif key == 'd':
+                print("  [INPUT] Left (Left Arrow)")
+            elif key == '\x1b[C': # RIGHT
                 current_move = (0.9, TURN_SPEED)
-                print("  [INPUT] Right")
-            elif key == 's':
+                print("  [INPUT] Right (Right Arrow)")
+            elif key == '\x1b[B': # DOWN
                 current_move = (0.0, 0.0)
-                print("  [INPUT] Stop")
-            elif key == 'q':
+                print("  [INPUT] Stop (Down Arrow)")
+            elif key == 'q' or key == 'Q':
                 print("\n[INFO] Recording finished. Starting Playback...")
                 recording = False
                 break
