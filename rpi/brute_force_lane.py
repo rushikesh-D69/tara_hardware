@@ -48,14 +48,12 @@ from adas.decision_manager import Command
 # =============================================================================
 
 # Binary threshold: pixels brighter than this -> white (lane), rest -> black
-# For white tape on black chart paper, 150-200 works well.
-# Lower = more sensitive (picks up noise), Higher = stricter (may miss faint tape)
-BINARY_THRESHOLD = 160
+# Increased slightly to ignore grey tape joints on the floor.
+BINARY_THRESHOLD = 175
 
 # How much of the frame to use (bottom portion only)
-# 0.5 = bottom half, 0.6 = bottom 60%, etc.
-# Higher = see further ahead (but more noise from surroundings)
-CROP_RATIO = 0.5
+# Increased from 0.5 to 0.6 to see a bit further ahead for smoother centering.
+CROP_RATIO = 0.6
 
 # Minimum total white pixels to consider "lane is visible"
 # Below this -> lane is LOST -> trigger turn logic
@@ -71,10 +69,12 @@ STEER_HARD_RIGHT =  0.9  # full turn at corner
 
 # Constant speed (normalized 0.0 to 1.0)
 # Lower = safer but may stall on carpet. Higher = faster but riskier on turns.
-CRUISE_SPEED = 0.25
+# Increased from 0.25 to 0.45 to ensure enough motor torque.
+CRUISE_SPEED = 0.45
 
 # Turn speed (slower during hard turns for stability)
-TURN_SPEED = 0.18
+# Increased from 0.18 to 0.35
+TURN_SPEED = 0.35
 
 # How long to hold a hard turn when lane is lost (seconds)
 # Too short = doesn't complete the 90 degree turn. Too long = overshoots.
@@ -83,6 +83,10 @@ TURN_HOLD_TIME = 0.8
 # Minimum "dominance" ratio for center to count as STRAIGHT
 # If center has > this fraction of total white pixels -> go straight
 CENTER_DOMINANCE = 0.35
+
+# Balance tolerance for 2-lane tracking
+# If abs(L-R)/Total is less than this, go STRAIGHT
+BALANCE_TOLERANCE = 0.15
 
 # Region split ratios (divide frame width into 3 regions)
 # Default: equal thirds. Adjust if camera is off-center.
@@ -310,28 +314,34 @@ class BruteForceLaneFollower:
                 self.turn_active = True
                 self.turn_start_time = now
 
-            elif total_count > 0 and (center_count / total_count) > CENTER_DOMINANCE:
-                # Center has the most white -> go straight
-                command = "STRAIGHT"
-                steer = STEER_STRAIGHT
-                speed = CRUISE_SPEED
-
-            elif left_count > right_count:
-                # Lane is more to the left -> steer left
-                command = "LEFT"
-                steer = STEER_LEFT
-                speed = CRUISE_SPEED
-                self.last_direction = "LEFT"
-
-            elif right_count > left_count:
-                # Lane is more to the right -> steer right
-                command = "RIGHT"
-                steer = STEER_RIGHT
-                speed = CRUISE_SPEED
-                self.last_direction = "RIGHT"
-
+            elif total_count > 0:
+                # --- Balanced Centering Logic ---
+                # We want to stay in the dark center, AWAY from the white lines.
+                # If Left has more pixels, we are too close to the left line -> steer RIGHT.
+                # If Right has more pixels, we are too close to the right line -> steer LEFT.
+                
+                balance = (left_count - right_count) / total_count
+                
+                if abs(balance) < BALANCE_TOLERANCE:
+                    # Balanced enough -> go straight
+                    command = "STRAIGHT"
+                    steer = STEER_STRAIGHT
+                    speed = CRUISE_SPEED
+                elif balance > 0:
+                    # Too many pixels on left -> steer right to center
+                    command = "CENTER_RIGHT"
+                    steer = STEER_RIGHT
+                    speed = CRUISE_SPEED
+                    self.last_direction = "RIGHT"
+                else:
+                    # Too many pixels on right -> steer left to center
+                    command = "CENTER_LEFT"
+                    steer = STEER_LEFT
+                    speed = CRUISE_SPEED
+                    self.last_direction = "LEFT"
+            
             else:
-                # Equal or ambiguous -> SEARCH (use last direction gently)
+                # No pixels at all -> SEARCH (use last direction gently)
                 command = "SEARCH"
                 steer = STEER_LEFT * 0.5 if self.last_direction == "LEFT" else STEER_RIGHT * 0.5
                 speed = CRUISE_SPEED
