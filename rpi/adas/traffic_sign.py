@@ -75,10 +75,10 @@ class TrafficSignRecognizer:
         # On an indoor track, signs are roughly at center height.
         # Crop to the center 40%×40% of the frame to avoid processing
         # floor, ceiling, and side walls.
-        self._roi_y_start = 0.3   # 30% from top
-        self._roi_y_end = 0.7     # 70% from top
-        self._roi_x_start = 0.3   # 30% from left
-        self._roi_x_end = 0.7     # 70% from left
+        self._roi_y_start = 0.2   # 20% from top (slightly higher to catch signs early)
+        self._roi_y_end = 0.95    # 95% from top (MUST include the road for ground signs)
+        self._roi_x_start = 0.2   # 20% from left
+        self._roi_x_end = 0.8     # 80% from left
 
         # ── [5] Temporal smoothing — majority vote buffer ─────────────
         # Keeps last 5 predictions. Final output = most frequent class.

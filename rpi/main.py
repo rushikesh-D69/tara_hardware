@@ -289,7 +289,10 @@ class TARAAdas:
         # Runs every 2nd frame for responsive landmark detection
         if self.frame_num % 2 == 0:
             t = self.fps.start_module("SignCV")
-            self._last_sign_hint = self.sign_detector.detect(frame)
+            # For ground signs, the Bird's Eye View (BEV) is much more robust
+            # as it un-warps the road surface.
+            bev_frame = self.lane_detector.warp_bev(frame)
+            self._last_sign_hint = self.sign_detector.detect(bev_frame)
             self.fps.stop_module(t)
 
         # ── Always run: Decision Manager ──────────────────────────────────

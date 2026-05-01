@@ -133,6 +133,13 @@ class DecisionManager:
         self._tsr_last_seen_time  = 0.0
         self._tsr_expiry_sec      = 10.0   # clear speed cap after 10s of no re-detection
 
+        # ── Sign Turn Maneuver State ──────────────────────────────────
+        # Once a sign is seen, hold the bias for a set duration.
+        self._sign_turn_active     = False
+        self._sign_turn_direction  = None
+        self._sign_turn_start_time = 0.0
+        self._sign_turn_hold_sec   = getattr(config, 'SIGN_TURN_HOLD_SEC', 1.5)
+
         # Perception health
         self._no_perception_frames = 0
 
@@ -235,15 +242,31 @@ class DecisionManager:
         raw_steer = self._last_steer_x
         raw_speed = self._last_speed_y
 
-        # ── OpenCV Sign Hint (Landmark Navigation Override) ───────────────
-        if sign_hint == "LEFT":
-            self._last_steer_x = -0.75  # Force left bias
-            raw_speed *= 0.5            # Slow down significantly for the turn
-            log.info("SIGN HINT: Detected Turn LEFT sign — biasing steering")
-        elif sign_hint == "RIGHT":
-            self._last_steer_x = 0.75   # Force right bias
-            raw_speed *= 0.5            # Slow down significantly for the turn
-            log.info("SIGN HINT: Detected Turn RIGHT sign — biasing steering")
+        # ── OpenCV Sign Hint (Landmark Navigation Maneuver) ───────────────
+        if sign_hint in ["LEFT", "RIGHT"]:
+            # Trigger or refresh the maneuver
+            if not self._sign_turn_active or self._sign_turn_direction != sign_hint:
+                log.info(f"SIGN MANEUVER: Started Turn {sign_hint} hold")
+            
+            self._sign_turn_active = True
+            self._sign_turn_direction = sign_hint
+            self._sign_turn_start_time = now
+
+        # Apply maneuver if active
+        if self._sign_turn_active:
+            elapsed = now - self._sign_turn_start_time
+            if elapsed < self._sign_turn_hold_sec:
+                # Force steering bias based on direction
+                bias = -0.75 if self._sign_turn_direction == "LEFT" else 0.75
+                self._last_steer_x = bias
+                raw_speed *= 0.5   # Slow down for the turn
+                
+                # Update raw values for smoothing
+                raw_steer = bias
+                # Note: raw_speed is already reduced above
+            else:
+                self._sign_turn_active = False
+                log.info(f"SIGN MANEUVER: Completed Turn {self._sign_turn_direction}")
 
         # ── Dynamic Speed Reduction (Turn Compensation) ──────────────────
         # Reduce speed by up to 60% based on steering severity

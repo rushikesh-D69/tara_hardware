@@ -123,6 +123,14 @@ class LaneDetector:
         self._M = cv2.getPerspectiveTransform(src, dst)
         self._M_inv = cv2.getPerspectiveTransform(dst, src)
 
+    def warp_bev(self, frame):
+        """
+        Warp a frame to bird's-eye view using the precomputed matrix.
+        Useful for other modules (like sign detection) to see ground-pasted signs top-down.
+        """
+        small = cv2.resize(frame, (self.proc_w, self.proc_h))
+        return cv2.warpPerspective(small, self._M, (self.proc_w, self.proc_h))
+
     def detect(self, frame, debug=False):
         """
         Run the full lane detection pipeline on a single frame.

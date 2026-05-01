@@ -23,6 +23,7 @@ class SignDetectorCV:
     def detect(self, frame):
         """
         Detects blue circular signs and returns 'LEFT', 'RIGHT', or None.
+        Uses centroid-based direction analysis for the internal white arrow.
         """
         if frame is None: return None
         
@@ -34,9 +35,10 @@ class SignDetectorCV:
         hsv = cv2.cvtColor(small, cv2.COLOR_BGR2HSV)
         blue_mask = cv2.inRange(hsv, self.blue_low, self.blue_high)
         
-        # 3. Morphology to clean up noise
+        # 3. Morphology to clean up noise and close gaps
         kernel = np.ones((5, 5), np.uint8)
         blue_mask = cv2.morphologyEx(blue_mask, cv2.MORPH_OPEN, kernel)
+        blue_mask = cv2.dilate(blue_mask, kernel, iterations=1) # Close gaps from reflections
         
         # 4. Find circular contours
         contours, _ = cv2.findContours(blue_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -50,7 +52,8 @@ class SignDetectorCV:
             if peri == 0: continue
             circularity = 4 * np.pi * area / (peri * peri)
             
-            if circularity > self.cfg.SIGN_CIRCULARITY_THRESHOLD: # Good enough for a circle
+            # Relaxed circularity check to handle tilted signs
+            if circularity > self.cfg.SIGN_CIRCULARITY_THRESHOLD: 
                 # 5. Extract the region of interest (ROI)
                 x, y, bw, bh = cv2.boundingRect(cnt)
                 roi = small[y:y+bh, x:x+bw]
@@ -59,18 +62,25 @@ class SignDetectorCV:
                 roi_hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
                 white_mask = cv2.inRange(roi_hsv, self.white_low, self.white_high)
                 
-                # Check pixel count in left vs right half of the ROI
-                mid = bw // 2
-                left_mass = cv2.countNonZero(white_mask[:, :mid])
-                right_mass = cv2.countNonZero(white_mask[:, mid:])
-                
-                # If one side has significantly more white pixels, it's a turn sign
-                # Usually the "head" of the arrow adds more mass to that side
-                if right_mass > left_mass * 1.3:
-                    log.info(f"Sign Detected: TURN RIGHT (L:{left_mass} R:{right_mass})")
-                    return "RIGHT"
-                elif left_mass > right_mass * 1.3:
-                    log.info(f"Sign Detected: TURN LEFT (L:{left_mass} R:{right_mass})")
-                    return "LEFT"
+                # ── Centroid-based Direction Analysis ──────────────────────────
+                # Find the center of mass of the white pixels
+                M = cv2.moments(white_mask)
+                if M["m00"] > 50: # Minimum white mass to be an arrow
+                    cX = int(M["m10"] / M["m00"])
+                    cY = int(M["m01"] / M["m00"])
+                    
+                    # The arrow "head" or the way it points usually shifts the 
+                    # centroid away from the geometric center.
+                    center_x = bw / 2
+                    
+                    # If centroid is significantly left or right of center
+                    offset_x = (cX - center_x) / bw # Normalized offset (-0.5 to 0.5)
+                    
+                    if offset_x > 0.05: # Centroid is on the right
+                        log.info(f"Sign Detected: RIGHT (centroid offset: {offset_x:.2f})")
+                        return "RIGHT"
+                    elif offset_x < -0.05: # Centroid is on the left
+                        log.info(f"Sign Detected: LEFT (centroid offset: {offset_x:.2f})")
+                        return "LEFT"
                     
         return None
