@@ -242,8 +242,8 @@ class BruteForceLaneFollower:
         # Apply Gaussian blur to reduce noise
         gray = cv2.GaussianBlur(gray, (5, 5), 0)
 
-        # Binary threshold: white tape -> 255, everything else -> 0
-        _, binary = cv2.threshold(gray, BINARY_THRESHOLD, 255, cv2.THRESH_BINARY)
+        # Using adaptive thresholding for the light marble floor
+        binary = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 51, -20)
 
         # Crop bottom portion only (ignore sky / top of room)
         h, w = binary.shape

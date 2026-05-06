@@ -38,8 +38,8 @@ COMMAND_INTERVAL = 0.05           # Target send rate: 50 ms = 20 Hz
 # Primary lane detection method — adaptive thresholding (robust under indoor lighting)
 LANE_USE_ADAPTIVE_THRESH = True
 LANE_ADAPTIVE_BLOCK_SIZE = 51    # Must be odd. Larger = less sensitive to local brightness variation.
-LANE_ADAPTIVE_C = -30            # Negative = detect pixels brighter than local mean.
-                                 # More negative = more aggressive white detection.
+LANE_ADAPTIVE_C = -15            # Negative = detect pixels brighter than local mean.
+                                 # Set to -15 for light marble floor (less aggressive).
 
 # Morphological kernel size (for closing gaps + removing noise)
 # 5 handles glossy chart-paper reflections better than 3
