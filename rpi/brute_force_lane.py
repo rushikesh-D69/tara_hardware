@@ -12,12 +12,9 @@ Algorithm:
   2. Divide into LEFT / CENTER / RIGHT regions
   3. Count white pixels in each ??? decide STRAIGHT / LEFT / RIGHT
   4. If total white pixels < threshold ??? lane lost ??? TURN using last_direction
-  5. Send normalized (x, y) command to ESP32 via WebSocket
-
 Usage:
   python3 brute_force_lane.py                 # Normal
   python3 brute_force_lane.py --debug         # MJPEG debug stream at :5000
-  python3 brute_force_lane.py --no-wifi       # Vision-only (no ESP32)
   python3 brute_force_lane.py --video x.mp4   # Test with video file
 """
 
@@ -36,12 +33,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import config
 from camera.capture import CameraCapture
-try:
-    from comms.ws_bridge import WsBridge
-except ImportError:
-    WsBridge = None
-
-from adas.decision_manager import Command
 
 # =============================================================================
 # TUNABLE PARAMETERS - Adjust these for your specific track & lighting
@@ -191,15 +182,6 @@ class BruteForceLaneFollower:
                 fps=config.CAMERA_FPS,
             )
 
-        # ESP32 connection
-        self.ws = None
-        if not args.no_wifi:
-            self.ws = WsBridge(
-                host=config.ESP32_HOST,
-                port=config.ESP32_WS_PORT,
-                path=config.ESP32_WS_PATH,
-            )
-
         # MJPEG debug server
         self._mjpeg = None
         if args.debug:
@@ -207,7 +189,7 @@ class BruteForceLaneFollower:
             print(f"[DEBUG] Stream at http://<RPI_IP>:{_MJPEG_PORT}/")
 
     def start(self):
-        """Initialize camera and ESP32 connection."""
+        """Initialize camera."""
         print("=" * 55)
         print("  TARA ??? Brute-Force Lane Follower")
         print("  Track: Black surface + white lanes")
@@ -219,11 +201,6 @@ class BruteForceLaneFollower:
         except RuntimeError as e:
             print(f"[ERROR] Camera failed: {e}")
             return False
-
-        if self.ws:
-            if not self.ws.connect():
-                print("[WARN] ESP32 not connected - vision-only mode")
-                self.ws = None
 
         self.running = True
         print("[OK] Pipeline running. Press Ctrl+C to stop.\n")
@@ -347,12 +324,7 @@ class BruteForceLaneFollower:
                 speed = CRUISE_SPEED
 
         # ?????? Step 4: Send command to ESP32 ????????????????????????????????????????????????????????????????????????????????????????????????
-        cmd = Command()
-        cmd.steer_x = steer
-        cmd.speed_y = speed
 
-        if self.ws:
-            self.ws.send_command(cmd)
 
         # ?????? Step 5: Debug output ???????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
         elapsed_ms = (time.monotonic() - t0) * 1000
@@ -432,10 +404,6 @@ class BruteForceLaneFollower:
         print("\n[INFO] Stopping brute-force lane follower...")
         self.running = False
 
-        if self.ws:
-            self.ws.send_stop()
-            self.ws.disconnect()
-
         self.camera.stop()
 
         print("=" * 55)
@@ -453,8 +421,6 @@ def parse_args():
         description="TARA ??? Brute-Force Lane Follower (No ML)")
     parser.add_argument("--debug", action="store_true",
                         help="Stream debug view at http://RPI_IP:5000/")
-    parser.add_argument("--no-wifi", action="store_true",
-                        help="Run without ESP32 (vision-only)")
     parser.add_argument("--video", type=str, default=None,
                         help="Use video file instead of live camera")
     return parser.parse_args()

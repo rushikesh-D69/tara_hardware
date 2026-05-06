@@ -310,8 +310,9 @@ class TARAAdas:
 
         if self.ws:
             # ── Send command to ESP32 via WiFi WebSocket ─────────────────
-            self.ws.send_command(command)
-
+            # DISABLED: Only sending video stream with detection now
+            # self.ws.send_command(command)
+            pass
 
         # ── Debug visualization ────────────────────────────────────────
         if self.args.debug:
