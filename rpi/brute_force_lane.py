@@ -1,21 +1,20 @@
 #!/usr/bin/env python3
 """
-TARA ??? Brute-Force Lane Follower (No ML)
+TARA — Brute-Force Lane Follower (No ML)
 =========================================
-Replaces the entire ADAS ML pipeline with simple pixel-counting logic.
-
-Track: Black surface, white lane markings, sharp 90?? turns.
-Goal:  Complete the track RELIABLY, not intelligently.
+Replaces the full ADAS pipeline with simple pixel-counting logic for reliable
+track completion on a black-surface / white-tape indoor course.
 
 Algorithm:
-  1. Capture frame ??? grayscale ??? binary threshold ??? crop bottom half
+  1. Capture frame → grayscale → adaptive threshold → crop bottom half
   2. Divide into LEFT / CENTER / RIGHT regions
-  3. Count white pixels in each ??? decide STRAIGHT / LEFT / RIGHT
-  4. If total white pixels < threshold ??? lane lost ??? TURN using last_direction
+  3. Count white pixels per region → decide STRAIGHT / LEFT / RIGHT
+  4. If total white pixels < threshold → lane lost → TURN using last_direction
+
 Usage:
-  python3 brute_force_lane.py                 # Normal
-  python3 brute_force_lane.py --debug         # MJPEG debug stream at :5000
-  python3 brute_force_lane.py --video x.mp4   # Test with video file
+  python3 brute_force_lane.py               # Normal
+  python3 brute_force_lane.py --debug       # MJPEG debug stream at :5000
+  python3 brute_force_lane.py --video x.mp4 # Test with video file
 """
 
 import os
@@ -28,76 +27,43 @@ import cv2
 import numpy as np
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-# ?????? Ensure rpi/ is on the import path ??????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import config
 from camera.capture import CameraCapture
 
-# =============================================================================
-# TUNABLE PARAMETERS - Adjust these for your specific track & lighting
-# =============================================================================
-
-# Binary threshold: pixels brighter than this -> white (lane), rest -> black
-# Increased slightly to ignore grey tape joints on the floor.
-BINARY_THRESHOLD = 175
-
-# How much of the frame to use (bottom portion only)
-# Increased from 0.5 to 0.6 to see a bit further ahead for smoother centering.
-CROP_RATIO = 0.6
-
-# Minimum total white pixels to consider "lane is visible"
-# Below this -> lane is LOST -> trigger turn logic
-# Increased from 500 to 1200 to be more sensitive at corners.
+# ── Tunable Parameters ────────────────────────────────────────────────────────
+BINARY_THRESHOLD    = 175
+CROP_RATIO          = 0.6
 LANE_LOST_THRESHOLD = 1200
 
-# Steering values sent to ESP32 (normalized -1.0 to 1.0)
-STEER_STRAIGHT = 0.0
-STEER_LEFT     = -0.4    # gentle left correction
-STEER_RIGHT    =  0.4    # gentle right correction
-STEER_HARD_LEFT  = -0.9  # full turn at corner
-STEER_HARD_RIGHT =  0.9  # full turn at corner
+STEER_STRAIGHT   =  0.0
+STEER_LEFT       = -0.4
+STEER_RIGHT      =  0.4
+STEER_HARD_LEFT  = -0.9
+STEER_HARD_RIGHT =  0.9
 
-# Constant speed (normalized 0.0 to 1.0)
-# Lower = safer but may stall on carpet. Higher = faster but riskier on turns.
-# Increased from 0.25 to 0.45 to ensure enough motor torque.
-CRUISE_SPEED = 0.45
+CRUISE_SPEED     = 0.45
+TURN_SPEED       = 0.35
+TURN_HOLD_TIME   = 1.5
 
-# Turn speed (slower during hard turns for stability)
-# Increased from 0.18 to 0.35
-TURN_SPEED = 0.35
-
-# How long to hold a hard turn when lane is lost (seconds)
-# Increased from 0.8 to 1.5 to ensure it completes 90-degree turns.
-TURN_HOLD_TIME = 1.5
-
-# Minimum "dominance" ratio for center to count as STRAIGHT
-# If center has > this fraction of total white pixels -> go straight
-CENTER_DOMINANCE = 0.35
-
-# Balance tolerance for 2-lane tracking
-# If abs(L-R)/Total is less than this, go STRAIGHT
+CENTER_DOMINANCE  = 0.35
 BALANCE_TOLERANCE = 0.15
 
-# Region split ratios (divide frame width into 3 regions)
-# Default: equal thirds. Adjust if camera is off-center.
-LEFT_END   = 0.33    # left region: 0% to 33% of width
-RIGHT_START = 0.66   # right region: 66% to 100% of width
+LEFT_END    = 0.33
+RIGHT_START = 0.66
 
-# Startup frames to skip (let camera auto-expose)
 STARTUP_SKIP_FRAMES = 10
 
-# =============================================================================
-# MJPEG Debug Stream (same as main.py - view at http://RPI_IP:5000/)
-# =============================================================================
-
+# ── MJPEG Debug Stream ────────────────────────────────────────────────────────
 _mjpeg_frame = None
-_mjpeg_lock = threading.Lock()
-_MJPEG_PORT = 5000
+_mjpeg_lock  = threading.Lock()
+_MJPEG_PORT  = 5000
 
 
 class _MjpegHandler(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
+
     def do_GET(self):
         if self.path == '/':
             self.send_response(200)
@@ -147,27 +113,23 @@ def _push_mjpeg(bgr):
             _mjpeg_frame = buf.tobytes()
 
 
-# =============================================================================
-# CORE LOGIC
-# =============================================================================
+# ── Core Logic ────────────────────────────────────────────────────────────────
 
 class BruteForceLaneFollower:
     """
     Dead-simple lane follower using binary thresholding + region pixel counts.
-    No ML, no PID, no polynomial fitting ??? just count white pixels and steer.
+    No ML, no PID, no polynomial fitting — just count white pixels and steer.
     """
 
     def __init__(self, args):
-        self.args = args
+        self.args    = args
         self.running = False
 
-        # State
-        self.last_direction = "LEFT"      # default turn when lane lost
-        self.turn_active = False           # currently executing a hard turn?
-        self.turn_start_time = 0.0         # when the turn started
-        self.frame_num = 0
+        self.last_direction  = "LEFT"
+        self.turn_active     = False
+        self.turn_start_time = 0.0
+        self.frame_num       = 0
 
-        # Camera
         if args.video:
             self.camera = CameraCapture(
                 index=args.video,
@@ -182,18 +144,17 @@ class BruteForceLaneFollower:
                 fps=config.CAMERA_FPS,
             )
 
-        # MJPEG debug server
         self._mjpeg = None
         if args.debug:
             self._mjpeg = _start_mjpeg_server()
             print(f"[DEBUG] Stream at http://<RPI_IP>:{_MJPEG_PORT}/")
 
     def start(self):
-        """Initialize camera."""
+        """Open camera and begin processing."""
         print("=" * 55)
-        print("  TARA ??? Brute-Force Lane Follower")
+        print("  TARA — Brute-Force Lane Follower")
         print("  Track: Black surface + white lanes")
-        print("  Logic: Threshold ??? Region count ??? Steer")
+        print("  Logic: Threshold → Region count → Steer")
         print("=" * 55)
 
         try:
@@ -228,7 +189,6 @@ class BruteForceLaneFollower:
 
         self.frame_num += 1
 
-        # Skip initial frames (camera auto-exposure settling)
         if self.frame_num <= STARTUP_SKIP_FRAMES:
             if self.frame_num == STARTUP_SKIP_FRAMES:
                 print(f"[STARTUP] Skipped {STARTUP_SKIP_FRAMES} frames for camera warmup")
@@ -236,22 +196,22 @@ class BruteForceLaneFollower:
 
         t0 = time.monotonic()
 
-        # ?????? Step 1: Preprocess ????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        # Step 1: Preprocess
+        gray   = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        gray   = cv2.GaussianBlur(gray, (5, 5), 0)
+        binary = cv2.adaptiveThreshold(
+            gray, 255,
+            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY,
+            51, -20,
+        )
 
-        # Apply Gaussian blur to reduce noise
-        gray = cv2.GaussianBlur(gray, (5, 5), 0)
-
-        # Using adaptive thresholding for the light marble floor
-        binary = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 51, -20)
-
-        # Crop bottom portion only (ignore sky / top of room)
         h, w = binary.shape
         crop_start = int(h * (1.0 - CROP_RATIO))
         roi = binary[crop_start:h, :]
 
-        # ?????? Step 2: Region-based pixel counting ??????????????????????????????????????????????????????????????????????????????
-        roi_h, roi_w = roi.shape
+        # Step 2: Region pixel counts
+        roi_h, roi_w   = roi.shape
         left_boundary  = int(roi_w * LEFT_END)
         right_boundary = int(roi_w * RIGHT_START)
 
@@ -264,78 +224,61 @@ class BruteForceLaneFollower:
         right_count  = cv2.countNonZero(right_region)
         total_count  = left_count + center_count + right_count
 
-        # ?????? Step 3: Decision logic ?????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
+        # Step 3: Decision logic
         command = "STRAIGHT"
-        steer = STEER_STRAIGHT
-        speed = CRUISE_SPEED
-        now = time.monotonic()
+        steer   = STEER_STRAIGHT
+        speed   = CRUISE_SPEED
+        now     = time.monotonic()
 
-        # Check if we're in the middle of a hard turn
         if self.turn_active:
             elapsed = now - self.turn_start_time
             if elapsed < TURN_HOLD_TIME:
-                # Still turning ??? hold the turn
                 command = f"TURN_{self.last_direction}"
-                steer = STEER_HARD_LEFT if self.last_direction == "LEFT" else STEER_HARD_RIGHT
-                speed = TURN_SPEED
+                steer   = STEER_HARD_LEFT if self.last_direction == "LEFT" else STEER_HARD_RIGHT
+                speed   = TURN_SPEED
             else:
-                # Turn complete ??? re-evaluate
                 self.turn_active = False
 
         if not self.turn_active:
             if total_count < LANE_LOST_THRESHOLD:
-                # -- LANE LOST -> Hard turn using last known direction ----
-                command = f"TURN_{self.last_direction}"
-                steer = STEER_HARD_LEFT if self.last_direction == "LEFT" else STEER_HARD_RIGHT
-                speed = TURN_SPEED
-                self.turn_active = True
+                command              = f"TURN_{self.last_direction}"
+                steer                = STEER_HARD_LEFT if self.last_direction == "LEFT" else STEER_HARD_RIGHT
+                speed                = TURN_SPEED
+                self.turn_active     = True
                 self.turn_start_time = now
 
             elif total_count > 0:
-                # --- Balanced Centering Logic ---
-                # We want to stay in the dark center, AWAY from the white lines.
-                # If Left has more pixels, we are too close to the left line -> steer RIGHT.
-                # If Right has more pixels, we are too close to the right line -> steer LEFT.
-                
                 balance = (left_count - right_count) / total_count
-                
+
                 if abs(balance) < BALANCE_TOLERANCE:
-                    # Balanced enough -> go straight
                     command = "STRAIGHT"
-                    steer = STEER_STRAIGHT
-                    speed = CRUISE_SPEED
+                    steer   = STEER_STRAIGHT
+                    speed   = CRUISE_SPEED
                 elif balance > 0:
-                    # Too many pixels on left -> steer right to center
-                    command = "CENTER_RIGHT"
-                    steer = STEER_RIGHT
-                    speed = CRUISE_SPEED
-                    self.last_direction = "RIGHT"
+                    command              = "CENTER_RIGHT"
+                    steer                = STEER_RIGHT
+                    speed                = CRUISE_SPEED
+                    self.last_direction  = "RIGHT"
                 else:
-                    # Too many pixels on right -> steer left to center
-                    command = "CENTER_LEFT"
-                    steer = STEER_LEFT
-                    speed = CRUISE_SPEED
-                    self.last_direction = "LEFT"
-            
+                    command              = "CENTER_LEFT"
+                    steer                = STEER_LEFT
+                    speed                = CRUISE_SPEED
+                    self.last_direction  = "LEFT"
+
             else:
-                # No pixels at all -> SEARCH (use last direction gently)
                 command = "SEARCH"
-                steer = STEER_LEFT * 0.5 if self.last_direction == "LEFT" else STEER_RIGHT * 0.5
-                speed = CRUISE_SPEED
+                steer   = STEER_LEFT * 0.5 if self.last_direction == "LEFT" else STEER_RIGHT * 0.5
+                speed   = CRUISE_SPEED
 
-        # ?????? Step 4: Send command to ESP32 ????????????????????????????????????????????????????????????????????????????????????????????????
-
-
-        # ?????? Step 5: Debug output ???????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
         elapsed_ms = (time.monotonic() - t0) * 1000
+        print(
+            f"[F{self.frame_num:05d}] {command:12s} | "
+            f"L:{left_count:5d}  C:{center_count:5d}  R:{right_count:5d}  "
+            f"Total:{total_count:6d} | "
+            f"Steer:{steer:+.2f}  Speed:{speed:.2f} | "
+            f"{elapsed_ms:.1f}ms"
+        )
 
-        print(f"[F{self.frame_num:05d}] Command: {command:12s} | "
-              f"L:{left_count:5d}  C:{center_count:5d}  R:{right_count:5d}  "
-              f"Total:{total_count:6d} | "
-              f"Steer:{steer:+.2f}  Speed:{speed:.2f} | "
-              f"{elapsed_ms:.1f}ms")
-
-        # ?????? Step 6: Debug visualization ??????????????????????????????????????????????????????????????????????????????????????????????????????
         if self.args.debug:
             self._draw_debug(frame, roi, left_boundary, right_boundary,
                              crop_start, left_count, center_count, right_count,
@@ -343,30 +286,20 @@ class BruteForceLaneFollower:
 
     def _draw_debug(self, frame, roi, left_b, right_b, crop_start,
                     left_c, center_c, right_c, total_c, command, steer, speed):
-        """Draw debug visualization and push to MJPEG stream."""
+        """Compose debug overlay and push to MJPEG stream."""
         display = frame.copy()
-        h, w = display.shape[:2]
+        h, w    = display.shape[:2]
 
-        # Draw region boundaries on the frame
-        cv2.line(display, (left_b, crop_start), (left_b, h), (0, 255, 255), 2)
+        cv2.line(display, (left_b,  crop_start), (left_b,  h), (0, 255, 255), 2)
         cv2.line(display, (right_b, crop_start), (right_b, h), (0, 255, 255), 2)
         cv2.line(display, (0, crop_start), (w, crop_start), (255, 0, 255), 2)
 
-        # Color-code regions based on white pixel density
-        # Overlay transparent colors on each region
         overlay = display.copy()
-        alpha = 0.25
+        cv2.rectangle(overlay, (0,       crop_start), (left_b,  h), (255, 100, 0), -1)
+        cv2.rectangle(overlay, (left_b,  crop_start), (right_b, h), (0, 255,   0), -1)
+        cv2.rectangle(overlay, (right_b, crop_start), (w,       h), (0,   0, 255), -1)
+        display = cv2.addWeighted(overlay, 0.25, display, 0.75, 0)
 
-        # Left region - blue tint
-        cv2.rectangle(overlay, (0, crop_start), (left_b, h), (255, 100, 0), -1)
-        # Center region - green tint
-        cv2.rectangle(overlay, (left_b, crop_start), (right_b, h), (0, 255, 0), -1)
-        # Right region - red tint
-        cv2.rectangle(overlay, (right_b, crop_start), (w, h), (0, 0, 255), -1)
-
-        display = cv2.addWeighted(overlay, alpha, display, 1 - alpha, 0)
-
-        # Draw text info panel
         panel_lines = [
             f"CMD: {command}",
             f"Steer: {steer:+.2f}  Speed: {speed:.2f}",
@@ -377,7 +310,6 @@ class BruteForceLaneFollower:
             f"Frame: {self.frame_num}",
         ]
 
-        # Background panel
         cv2.rectangle(display, (5, 5), (320, 15 + len(panel_lines) * 22), (0, 0, 0), -1)
 
         for i, line in enumerate(panel_lines):
@@ -387,38 +319,31 @@ class BruteForceLaneFollower:
             elif "LOST" in command:
                 color = (0, 0, 255)
             cv2.putText(display, line, (10, 25 + i * 22),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1,
-                        cv2.LINE_AA)
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv2.LINE_AA)
 
-        # Show the binary ROI as a small inset (bottom-left corner)
         roi_color = cv2.cvtColor(roi, cv2.COLOR_GRAY2BGR)
         roi_small = cv2.resize(roi_color, (w // 3, roi.shape[0] // 2))
-        rh, rw = roi_small.shape[:2]
+        rh, rw    = roi_small.shape[:2]
         display[h - rh:h, 0:rw] = roi_small
 
-        # Push to MJPEG stream
         _push_mjpeg(display)
 
     def stop(self):
         """Graceful shutdown."""
         print("\n[INFO] Stopping brute-force lane follower...")
         self.running = False
-
         self.camera.stop()
-
         print("=" * 55)
-        print("  TARA ??? Brute-Force Lane Follower STOPPED")
+        print("  TARA — Brute-Force Lane Follower STOPPED")
         print(f"  Total frames processed: {self.frame_num}")
         print("=" * 55)
 
 
-# =============================================================================
-# Entry Point
-# =============================================================================
+# ── Entry Point ───────────────────────────────────────────────────────────────
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="TARA ??? Brute-Force Lane Follower (No ML)")
+        description="TARA — Brute-Force Lane Follower (No ML)")
     parser.add_argument("--debug", action="store_true",
                         help="Stream debug view at http://RPI_IP:5000/")
     parser.add_argument("--video", type=str, default=None,
@@ -427,13 +352,13 @@ def parse_args():
 
 
 def main():
-    args = parse_args()
+    args     = parse_args()
     follower = BruteForceLaneFollower(args)
 
     def signal_handler(sig, _frame):
         follower.running = False
 
-    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGINT,  signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
     follower.run()

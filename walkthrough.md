@@ -1,167 +1,182 @@
-# TARA — The Complete Baby-Steps Guide 🍼
+# TARA — System Walkthrough
 
-> **Read this top to bottom. Don't skip anything. Each step depends on the one before it.**
+> Throttle-Adaptive Road Autonomous — real hardware ADAS prototype on Raspberry Pi 4B + ESP32.
+> Read top to bottom. Each phase depends on the one before it.
+
+---
+
+![TARA on track](docs/PICS/tara_robot_hero.png)
+*TARA navigating the indoor marble-floor test track — white tape lanes, blue directional signs, red STOP sign, and a simulated traffic light.*
+
+---
+
+## Simulation First?
+
+> [!NOTE]
+> Before running on real hardware, validate the ADAS logic entirely in software using the CARLA simulator.
+> The companion simulation repository is available at:
+> **[rushikesh-D69/TARA-Tracking_Adaptive_Road_Autonomous_Car](https://github.com/rushikesh-D69/TARA-Tracking_Adaptive_Road_Autonomous_Car)**
+>
+> The simulation runs the same decision stack (lane detection, TSR, ACC, TLR) inside CARLA's photorealistic environment, letting you tune parameters before deploying to real hardware. **This repository is the real hardware deployment.**
 
 ---
 
 ## Part 1: What Are We Building?
 
-Your car prototype has **two brains**:
+TARA is a real hardware robot with two compute nodes:
+
+![System Architecture](docs/PICS/tara_system_architecture.png)
 
 ```
-┌─────────────────────┐         USB Cable         ┌──────────────────┐
-│                     │  ───────────────────────→  │                  │
-│   RASPBERRY PI 4B   │    "steer left, speed 150" │     ESP32        │
-│   (the THINKER)     │                            │   (the DOER)     │
-│                     │  ←───────────────────────  │                  │
-│   "sees" the road   │   "distance is 30cm"       │  controls motors │
-│   "thinks" what to  │                            │  reads sensors   │
-│    do next          │                            │                  │
-└─────────────────────┘                            └──────────────────┘
-        │                                                   │
-    USB Webcam                                    TB6612FNG Motor Driver
-    (its eyes)                                    HC-SR04 Ultrasonic
-                                                  MPU-6050 IMU
-                                                  Wheel Encoders
-                                                  Motors
+Raspberry Pi 4B                           ESP32
+┌────────────────────────┐  WiFi WebSocket  ┌──────────────────────┐
+│  USB Camera            │ ──────────────→  │  WebSocket Server    │
+│  Lane Detection        │  auto_cmd JSON   │  Motor PWM Control   │
+│  TSR (TFLite)          │                  │  TB6612FNG H-bridge  │
+│  Pothole (TFLite)      │ ←──────────────  │  Encoder read        │
+│  TLR (HSV)             │  SEN: telemetry  │  MPU-6050 IMU        │
+│  Decision Manager      │                  └──────────────────────┘
+│  MJPEG stream :5000    │
+└────────────────────────┘
+         |
+         | HTTP :80
+         v
+  Browser Dashboard
+  (manual control + telemetry)
 ```
-
-**RPi thinks. ESP32 does.** They talk through a USB cable.
-
----
-
-## Part 2: What Does Each File Do?
-
-### 🔵 Files that run on Raspberry Pi (`rpi/` folder)
-
-| File | What it does | Analogy |
-|---|---|---|
-| `main.py` | **The boss.** Starts everything, coordinates all modules. | The driver's brain |
-| `config.py` | **Settings.** Camera resolution, speed limits, thresholds. | The car's settings menu |
-| `camera/capture.py` | Reads frames from your USB webcam. | The eyes |
-| `adas/lane_detection.py` | Finds lane lines in the camera image. | "Am I still in my lane?" |
-| `adas/traffic_sign.py` | Recognizes traffic signs (stop, speed limit, etc.) | "What does that sign say?" |
-| `adas/pothole_detection.py` | Detects potholes on the road. | "Is there a hole ahead?" |
-| `adas/adaptive_cruise.py` | Uses ultrasonic sensor to keep distance from obstacles. | "Am I too close to something?" |
-| `adas/decision_manager.py` | Takes ALL the above outputs and decides: steer how much? speed how much? | "Okay, based on everything, here's what we do" |
-| `comms/serial_bridge.py` | Sends the final decision to ESP32 via USB cable. | The mouth (tells ESP32 what to do) |
-| `cloud/firebase_logger.py` | Saves data to cloud (optional, not required). | A dashcam recorder |
-| `models/` | **YOU PUT TRAINED MODEL FILES HERE.** Empty right now. | The knowledge bank |
-
-### 🟢 Files that run on your PC (for training only)
-
-| File | What it does | When to use |
-|---|---|---|
-| `training/train_tsr.py` | Trains the traffic sign recognition model | Once, before running the car |
-| `training/train_pothole.py` | Trains the pothole detection model | Once, before running the car |
-| `training/convert_to_tflite.py` | Converts trained model to a tiny format RPi can run | Once, after training |
-
-### 🟡 File that runs on ESP32
-
-| File | What it does |
-|---|---|
-| `esp32/tara_controller/tara_controller.ino` | Receives commands from RPi, controls motors, reads sensors, sends sensor data back |
-
----
-
-## Part 3: Which Features Need Training?
 
 > [!IMPORTANT]
-> **Only 2 out of 5 features need training. The other 3 work immediately with NO training.**
-
-| Feature | Needs Training? | Why? |
-|---|---|---|
-| Lane Detection | ❌ **NO** | Uses math (OpenCV). Looks for white/yellow lines with color filters. |
-| Adaptive Cruise Control | ❌ **NO** | Uses math (PID). Reads distance sensor, slows down if too close. |
-| Traffic Sign Recognition | ✅ **YES** | Needs a neural network to recognize 43 types of signs. |
-| Pothole Detection | ✅ **YES** | Needs a neural network to tell potholes apart from normal road. |
-| Decision Manager | ❌ **NO** | Pure if/else logic. Combines everything and picks the safest action. |
+> The RPi and ESP32 communicate over WiFi WebSocket (not a USB serial cable).
+> All nodes — RPi, ESP32, Dashboard — must be on the same WiFi network.
 
 ---
 
-## Part 4: The 5 Phases (Do Them In Order)
+## Part 2: The Test Track
+
+![Track Overview](docs/PICS/tara_track_overview.png)
+
+The indoor test arena uses white insulation tape on a marble floor to form a closed-loop circuit with:
+
+| Element | Purpose |
+|---------|---------|
+| White tape lanes | Lane keeping (LDW + LKA) |
+| Blue circular signs (arrows) | Directional landmark navigation |
+| Red STOP sign | Traffic Sign Recognition (TSR) hard stop |
+| Phone displaying traffic light | Traffic Light Recognition (TLR) |
+| Water bottle obstacle | Obstacle placement for avoidance demo |
+
+> [!NOTE]
+> The marble floor is a challenging surface — its glossy finish creates reflections and variable lighting.
+> The adaptive threshold (`LANE_ADAPTIVE_BLOCK_SIZE = 51`) in `config.py` was tuned specifically for this environment.
+
+---
+
+## Part 3: What Does Each File Do?
+
+### Raspberry Pi — `rpi/`
+
+| File | Role |
+|------|------|
+| `main.py` | Pipeline entry point — owns all modules, runs the 4-frame scheduler |
+| `brute_force_lane.py` | No-ML fallback lane follower (pixel counting, reliable for demos) |
+| `config.py` | Single source of truth for all tunable parameters |
+| `adas/lane_detection.py` | LDW + LKA — adaptive threshold, bird's-eye warp, sliding-window polynomial fit |
+| `adas/traffic_sign.py` | TSR — MobileNetV2 INT8 TFLite, GTSRB 43-class, majority voting |
+| `adas/pothole_detection.py` | Pothole — MobileNetV2 binary classifier or SSD |
+| `adas/adaptive_cruise.py` | ACC — vision-only cruise speed policy |
+| `adas/traffic_light.py` | TLR — HSV colour masks + circularity validation |
+| `adas/sign_detector_cv.py` | Directional sign — OpenCV blue-circle + white-arrow centroid |
+| `adas/decision_manager.py` | Priority arbitrator — outputs normalised Command(steer_x, speed_y) |
+| `comms/ws_bridge.py` | WebSocket client to ESP32 |
+| `camera/capture.py` | Threaded camera (live + video file) |
+| `utils/fps_counter.py` | Rolling FPS + per-module timing |
+| `utils/logger.py` | Structured logger |
+
+### ESP32 — `esp32/Dashboard/`
+
+The ESP32 runs AsyncWebServer (port 80) that:
+- Hosts the browser Dashboard at `/`
+- Serves a WebSocket endpoint at `/ws` accepting JSON commands from RPi and dashboard
+
+---
+
+## Part 4: Which Features Need ML Training?
+
+> [!IMPORTANT]
+> Only 2 of the 7 ADAS features require trained TFLite models. The rest are pure OpenCV.
+
+| Feature | Needs Training? | Method |
+|---------|----------------|--------|
+| Lane Detection (LDW + LKA) | No | Adaptive threshold + polynomial fit |
+| Traffic Light Recognition | No | HSV colour masks + shape validation |
+| Directional Sign Detection | No | OpenCV blue-circle + centroid |
+| Adaptive Cruise Control | No | Vision-only speed policy |
+| Decision Manager | No | Priority if/else arbitration |
+| Traffic Sign Recognition | Yes | MobileNetV2 INT8 (GTSRB 43-class) |
+| Pothole Detection | Yes | MobileNetV2 binary classifier |
+
+---
+
+## Part 5: The 5 Phases
 
 ```
 Phase 1          Phase 2          Phase 3          Phase 4          Phase 5
-TRAIN            CONVERT          SETUP            CONNECT          RUN
-(on your PC)     (on your PC)     (on RPi)         (hardware)       (on RPi)
-   │                │                │                │                │
-   ▼                ▼                ▼                ▼                ▼
-Train models  →  Make them    →  Install       →  Wire it     →  python3
-on GPU           tiny for Pi     software         all up         main.py
+TRAIN            CONVERT          FLASH ESP32      SETUP RPi        RUN
+(PC / Colab)     (PC)             (Arduino IDE)    (RPi terminal)   (RPi terminal)
+    |                |                |                |                |
+    v                v                v                v                v
+Train models ->  Make TFLite ->  Upload firmware ->  Install deps ->  python3 main.py
 ```
 
 ---
 
-### 🟢 Phase 1: Train the Models (On Your PC or Google Colab)
+### Phase 1: Train the Models (PC or Google Colab)
 
-> **Where:** Your Windows PC or [Google Colab](https://colab.research.google.com) (free GPU)
-> **Time:** 1-3 hours
-> **You only do this ONCE.**
+> [!NOTE]
+> You only do this once. Models can be reused across runs.
 
-#### Step 1.1: Get the Datasets
+#### Step 1.1 — Get the Datasets
 
-**For Traffic Signs:**
-1. Go to https://benchmark.ini.rub.de/gtsrb_dataset.html
-2. Download "GTSRB Final Training Images"
-3. Unzip it
-4. Put the class folders (00000, 00001, ..., 00042) inside:
-   ```
-   d:\Projects\TARA\training\datasets\GTSRB\
-   ```
+**Traffic Signs (GTSRB):**
+```
+https://benchmark.ini.rub.de/gtsrb_dataset.html
+Download "GTSRB Final Training Images"
+Unzip class folders (00000-00042) to:
+   training/datasets/GTSRB/
+```
 
-**For Potholes:**
-1. Go to https://www.kaggle.com/datasets/sachinpatel21/pothole-image-dataset
-2. Download the dataset
-3. Organize images into two folders:
-   ```
-   d:\Projects\TARA\training\datasets\pothole\
-       pothole\     ← photos of potholes
-       normal\      ← photos of normal road
-   ```
+**Potholes:**
+```
+https://www.kaggle.com/datasets/sachinpatel21/pothole-image-dataset
+Organise into:
+   training/datasets/pothole/pothole/   <- pothole images
+   training/datasets/pothole/normal/    <- clear road images
+```
 
-#### Step 1.2: Train Traffic Sign Model
+#### Step 1.2 — Train
 
-Open a terminal on your PC:
 ```bash
-cd d:\Projects\TARA\training
+cd training/
 pip install tensorflow numpy opencv-python
+
 python train_tsr.py --epochs 50 --fine-tune
-```
+# Output: saved_models/tsr_mobilenetv2_final/
 
-Wait... it will print progress like:
-```
-Epoch 1/50 - accuracy: 0.61 - val_accuracy: 0.72
-Epoch 2/50 - accuracy: 0.78 - val_accuracy: 0.85
-...
-Epoch 50/50 - accuracy: 0.97 - val_accuracy: 0.95
-```
-
-When it finishes, you'll have: `saved_models/tsr_mobilenetv2_final/`
-
-#### Step 1.3: Train Pothole Model
-
-```bash
 python train_pothole.py --epochs 40 --fine-tune
+# Output: saved_models/pothole_mobilenetv2_final/
 ```
-
-When it finishes, you'll have: `saved_models/pothole_mobilenetv2_final/`
 
 ---
 
-### 🟢 Phase 2: Convert Models to TFLite (Still On Your PC)
-
-> **Why?** The RPi can't run full TensorFlow models. TFLite is a tiny, fast format.
+### Phase 2: Convert to TFLite (still on PC)
 
 ```bash
-# Convert traffic sign model
 python convert_to_tflite.py \
     --model saved_models/tsr_mobilenetv2_final \
     --output tsr_mobilenetv2_int8.tflite \
     --input-size 96 \
     --validate
 
-# Convert pothole model
 python convert_to_tflite.py \
     --model saved_models/pothole_mobilenetv2_final \
     --output pothole_mobilenetv2_int8.tflite \
@@ -169,262 +184,246 @@ python convert_to_tflite.py \
     --validate
 ```
 
-You now have two tiny files:
+You will have:
 ```
 tsr_mobilenetv2_int8.tflite       (~1.5 MB)
 pothole_mobilenetv2_int8.tflite   (~2 MB)
 ```
 
-**Copy these to a USB drive or remember where they are.** You'll need them in Phase 4.
+Copy to `rpi/models/` on the RPi (via SCP or USB drive).
 
 ---
 
-### 🟡 Phase 3: Flash the ESP32
+### Phase 3: Flash the ESP32
 
-> **Where:** Your PC with Arduino IDE
-> **Time:** 10 minutes
+> [!NOTE]
+> Use Arduino IDE 2.x with the ESP32 board package installed.
 
 1. Install [Arduino IDE](https://www.arduino.cc/en/software)
-2. Add ESP32 board support:
-   - File → Preferences → Additional Board Manager URLs
-   - Add: `https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json`
-   - Tools → Board → Board Manager → Search "ESP32" → Install
-3. Open file: `d:\Projects\TARA\esp32\tara_controller\tara_controller.ino`
-4. Select: Tools → Board → **ESP32 Dev Module**
-5. Select: Tools → Port → (your ESP32's COM port)
-6. Click **Upload** (→ button)
-7. Wait for "Done uploading"
-
-**Your ESP32 is now ready.** It will:
-- Listen for commands from the RPi
-- Control the motors via TB6612FNG
-- Read the ultrasonic sensor, encoders, and IMU
-- Send sensor data back to the RPi
+2. File -> Preferences -> Additional Board Manager URLs -> add:
+   ```
+   https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+   ```
+3. Tools -> Board -> Board Manager -> search "ESP32" -> Install
+4. Open `esp32/Dashboard/` sketch
+5. Tools -> Board -> ESP32 Dev Module
+6. Tools -> Port -> select your ESP32's COM port
+7. Click Upload and wait for "Done uploading"
 
 ---
 
-### 🔵 Phase 4: Setup the Raspberry Pi
+### Phase 4: Set Up the Raspberry Pi
 
-> **Where:** On the Raspberry Pi (SSH in or use keyboard+monitor)
-> **Time:** 30 minutes
-
-#### Step 4.1: Install the OS
+#### Step 4.1 — Install OS
 
 1. Download [Raspberry Pi OS 64-bit Lite](https://www.raspberrypi.com/software/)
-2. Flash to micro SD card using Raspberry Pi Imager
-3. Enable SSH during flashing
-4. Put the SD card in the RPi, power it on
+2. Flash to microSD using Raspberry Pi Imager (enable SSH)
+3. Boot and SSH in
 
-#### Step 4.2: Install Software
+#### Step 4.2 — Install Dependencies
 
-SSH into your RPi and run:
 ```bash
-# Update system
 sudo apt update && sudo apt upgrade -y
+sudo apt install -y python3-venv python3-pip libatlas-base-dev
 
-# Install dependencies
-sudo apt install -y python3-venv python3-pip libatlas-base-dev libhdf5-dev
-
-# Create a virtual environment
 python3 -m venv ~/tara-venv
 source ~/tara-venv/bin/activate
 
-# Copy the TARA project to the RPi (from your PC)
-# Option A: USB drive
-# Option B: scp -r d:\Projects\TARA\rpi pi@raspberrypi:~/TARA/rpi
-
-# Install Python packages
 cd ~/TARA/rpi
 pip install -r requirements.txt
 ```
 
-#### Step 4.3: Copy Model Files to RPi
+#### Step 4.3 — Copy Model Files
 
 ```bash
-# From your PC (replace IP with your RPi's IP):
-scp tsr_mobilenetv2_int8.tflite pi@192.168.1.XX:~/TARA/rpi/models/
-scp pothole_mobilenetv2_int8.tflite pi@192.168.1.XX:~/TARA/rpi/models/
+# From your PC:
+scp tsr_mobilenetv2_int8.tflite     pi@<RPI_IP>:~/TARA/rpi/models/
+scp pothole_mobilenetv2_int8.tflite pi@<RPI_IP>:~/TARA/rpi/models/
 ```
 
-Or copy via USB drive into `~/TARA/rpi/models/`
+#### Step 4.4 — Configure Network
 
-#### Step 4.4: Connect Everything
+Edit `rpi/config.py`:
+```python
+ESP32_HOST = "192.168.X.X"   # set to your ESP32's current IP
+CAMERA_INDEX = 0             # check with: ls /dev/video*
+```
+
+#### Step 4.5 — Hardware Connection
 
 ```
-                  ┌─────────────────────────┐
-                  │     RASPBERRY PI 4B      │
-                  │                          │
-  USB Webcam ────→│ USB Port 1              │
-                  │                          │
-  ESP32 (USB) ───→│ USB Port 2              │
-                  │                          │
-  5V 3A Power ───→│ USB-C Power             │
-                  └─────────────────────────┘
+Raspberry Pi 4B
+  USB Port 1  <- USB Webcam (camera)
+  USB-C       <- 5V 3A dedicated power supply (NOT motor battery)
 
-On the ESP32 side (already wired from your schematic):
-  ESP32 → TB6612FNG → Motors
-  ESP32 → HC-SR04
-  ESP32 → MPU-6050
-  ESP32 → Wheel Encoders
+ESP32 (on same WiFi network)
+  TB6612FNG -> 4 motors
+  MPU-6050  -> I2C (SDA=GPIO21, SCL=GPIO22)
+  Optical encoders (Left=GPIO34, Right=GPIO35)
 ```
 
 > [!IMPORTANT]
-> The RPi connects to ESP32 via **USB cable** (the same one you used to flash it).
-> The RPi connects to the webcam via **another USB port**.
-> Power the RPi with a **dedicated 5V 3A supply**, NOT from the motor battery.
-
-#### Step 4.5: Quick Checks
-
-```bash
-# Check webcam is detected
-ls /dev/video*
-# Should show: /dev/video0
-
-# Check ESP32 is detected  
-ls /dev/ttyUSB*
-# Should show: /dev/ttyUSB0
-
-# Fix serial permissions (one time only)
-sudo usermod -a -G dialout $USER
-# Log out and back in after this
-```
+> Power the RPi from a separate 5V 3A supply, never from the motor battery.
+> Motor voltage spikes corrupt SD card writes and crash the pipeline.
 
 ---
 
-### 🚀 Phase 5: Run!
+### Phase 5: Run
 
 ```bash
-# Activate the virtual environment
 source ~/tara-venv/bin/activate
 cd ~/TARA/rpi
 
-# ── TEST 1: Camera only (no ESP32 needed) ──
-# This tests lane detection + TSR + pothole with just the webcam
-python3 main.py --no-serial --no-cloud --debug
+# Vision-only (no ESP32 needed) — good for first test
+python3 main.py --no-wifi --debug
 
-# What you should see:
-# - A window showing the camera feed
-# - Green lines on detected lanes
-# - FPS counter
-# - Press 'q' to quit
+# Full autonomous run
+python3 main.py --debug
 
-# ── TEST 2: Camera + ESP32 ──
-# Plug in the ESP32 via USB, then:
-python3 main.py --no-cloud --debug
-
-# Now the car should actually move!
-# Lane keeping, obstacle avoidance, everything is live.
-
-# ── TEST 3: Full run (production) ──
+# Headless production run
 python3 main.py
 
-# No window, no debug — just runs headlessly.
-# Ctrl+C to stop.
+# No-ML pixel-counting fallback (very reliable for track completion)
+python3 brute_force_lane.py --debug
+
+# Test with recorded video
+python3 main.py --video challenge_video.mp4 --debug
+```
+
+The `--debug` flag starts an MJPEG stream at `http://<RPI_IP>:5000/` viewable in any browser.
+
+---
+
+## Part 6: Live Debug Stream
+
+![Live Debug View](docs/PICS/tara_live_debug.png)
+
+When running with `--debug`, the MJPEG stream shows:
+- Green lines — detected left and right lane polynomials
+- Status panel — FPS, steering command, lane offset, TSR class, traffic light state
+- LDW: DEPARTURE! in red — lane departure warning active
+- LDW: RECOVERY in orange — both lanes temporarily lost, using polynomial history
+
+---
+
+## Part 7: Obstacle Detection and Avoidance
+
+![Obstacle detection and avoidance demo](docs/PICS/obstrucle_detection_avoidance.gif)
+*Live obstacle avoidance: pothole detected on one side, DecisionManager overrides LKA steering for 0.8 s hold + 0.4 s blend-back to lane center.*
+
+The avoidance sequence in `DecisionManager`:
+
+```
+1. PotholeDetector returns pothole_detected=True with position ("left"/"right"/"center")
+2. Two consecutive positive detections confirm (double-frame gating)
+3. Avoidance steer applied: opposite direction to pothole
+4. Hold for 0.8 s at reduced speed (60% of normal)
+5. Linear blend back to LKA steering over 0.4 s
+6. Normal lane-keep resumes
 ```
 
 ---
 
-## Part 5: What Happens When You Run `main.py`?
-
-Here's what happens **every single frame** (20+ times per second):
+## Part 8: Frame Schedule
 
 ```
-1. 📷 Camera grabs a frame (640x480 image)
-           │
-           ▼
-2. 🛣️  Lane Detection looks for lane lines
-   │      (OpenCV, ~10ms, every frame)
-   │
-   ├──→ Frame 1, 5, 9...: 🚦 Traffic Sign Recognition runs
-   │      (TFLite model, ~20ms)
-   │
-   ├──→ Frame 3, 7, 11...: 🕳️  Pothole Detection runs
-   │      (TFLite model, ~20ms)
-   │
-   └──→ Frame 0, 2, 4...: 📏 ACC reads distance sensor
-          (serial read, ~2ms)
-           │
-           ▼
-3. 🧠 Decision Manager combines everything:
-   "Lane says steer +15, ACC says speed 150,
-    no potholes, no signs → CMD:15,150,0"
-           │
-           ▼
-4. 📡 Serial Bridge sends to ESP32:
-   "CMD:15,150,0\n"
-           │
-           ▼
-5. ⚡ ESP32 controls motors:
-   Left motor: 165 PWM, Right motor: 135 PWM
-   (differential steering)
-           │
-           ▼
-6. 📡 ESP32 sends back sensor data:
-   "SEN:45.2,1250,1248,0.02,-0.01,9.81\n"
-           │
-           ▼
-   (repeat from step 1)
+Every 4-frame cycle at 25 fps = one cycle every ~160 ms:
+
+  Frame 0:   Lane + ACC
+  Frame 1:   Lane + TSR
+  Frame 2:   Lane + ACC + TLR
+  Frame 3:   Lane + Pothole
+  Frames 0,2: SignCV (every 2nd frame)
+  All frames: DecisionManager
 ```
 
 ---
 
-## Part 6: If Something Goes Wrong
+## Part 9: Decision Priority
+
+| Priority | Module | Effect |
+|----------|--------|--------|
+| 1 (highest) | Traffic Light RED | Immediate full stop, bypasses smoothing |
+| 2 | Traffic Light YELLOW | 30% speed, bypasses smoothing |
+| 3 | Pothole Avoidance | Override steering 0.8 s + 0.4 s blend-back |
+| 4 | TSR Speed Cap | Sets speed_y ceiling, auto-expires after 10 s |
+| 5 | ACC Throttle | Cruise speed setpoint (0.0-1.0) |
+| 6 | Lane Keeping Assist | Proportional steering from polynomial offset |
+| 7 (lowest) | LDW Warning | Flag only — no actuation |
+
+---
+
+## Part 10: Hardware Gallery
+
+````carousel
+![TARA on the full track](docs/PICS/Final_position.png)
+*TARA mid-circuit — blue directional signs visible, traffic light phone ahead, STOP sign on ground.*
+<!-- slide -->
+![Track layout top-down](docs/PICS/Final_track.jpeg)
+*Top-down view of the complete test arena. White tape forms the dual-lane circuit with directional markers at each corner.*
+<!-- slide -->
+![Road-level sign view](docs/PICS/road_track.jpeg)
+*Camera-level view of a blue straight-ahead directional sign inside the lane, as seen by the robot.*
+<!-- slide -->
+![Turning sequence](docs/PICS/Turning_Seq.png)
+*TARA executing a turn at a directional sign landmark.*
+<!-- slide -->
+![Pin connection reference](docs/PICS/PIN CONNECTIONS IN SCHEMATIC.jpeg)
+*ESP32 GPIO reference: TB6612FNG motor driver, HC-SR04 ultrasonic, MPU-6050 IMU, optical encoders.*
+````
+
+---
+
+## Part 11: Troubleshooting
 
 | Problem | Solution |
-|---|---|
-| `Camera not found` | Run `ls /dev/video*`. Try CAMERA_INDEX = 1 in config.py |
-| `Serial permission denied` | Run `sudo usermod -a -G dialout $USER` then reboot |
-| `TSR model not loaded` | You haven't copied the `.tflite` file to `rpi/models/` yet |
-| `ESP32 not responding` | Check USB cable. Run `ls /dev/ttyUSB*`. Try unplugging and replugging |
-| `Low FPS (< 5)` | Add a heatsink + fan to RPi. Or reduce PROC_WIDTH to 240 in config.py |
-| `Car drives erratically` | Tune PID values in config.py. Start with LKA_PID_KP = 0.3 |
-| `Lane not detected` | Adjust HSV thresholds in config.py for your track's lane color |
-| `Car doesn't stop for obstacles` | Check HC-SR04 wiring. Test with: `python3 -c "from comms.serial_bridge import ..."` |
+|---------|---------|
+| `Camera not found` | `ls /dev/video*` — try `CAMERA_INDEX = 1` in `config.py` |
+| `TSR model not loaded` | Copy `.tflite` files to `rpi/models/`. Check path in `config.py` |
+| `ESP32 WiFi not connected` | Verify `ESP32_HOST` in `config.py`. Use `--no-wifi` for vision-only test |
+| `Low FPS (< 5)` | Add heatsink + fan to RPi, or reduce `PROC_WIDTH = 240` in `config.py` |
+| `Car drives erratically` | Increase `LANE_STEERING_DEADBAND`. Check camera mounting angle |
+| `Lane not detected` | Tune `LANE_ADAPTIVE_C` (try -10 to -20). Check ambient lighting |
+| `TSR flickering` | Normal — majority voting stabilises over 5 frames. Lower `TSR_CONFIDENCE_THRESHOLD` if under-detecting |
+| `Pothole false positives` | Raise `POTHOLE_CONFIDENCE_THRESHOLD` to 0.75 |
+| `Traffic light ignored` | Ensure the phone is in the top 30% of the camera frame |
 
 ---
 
-## Part 7: Files You Can Ignore For Now
-
-These are "nice to have" but **not required** for a working prototype:
-
-| File | Why you can skip it |
-|---|---|
-| `cloud/firebase_logger.py` | Optional data logging. Use `--no-cloud` flag |
-| `docs/cloud_setup.md` | Only needed if you want Firebase |
-| `utils/fps_counter.py` | Auto-used by main.py, don't touch it |
-| `utils/logger.py` | Auto-used by main.py, don't touch it |
-| `.gitignore` | Only matters if you use git |
-
----
-
-## Quick Reference Card
+## Quick Reference
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│                    TARA QUICK REFERENCE                  │
-├──────────────────────────────────────────────────────────┤
-│                                                          │
-│  TO TRAIN MODELS (on PC):                                │
-│    cd training/                                          │
-│    python train_tsr.py --epochs 50 --fine-tune           │
-│    python train_pothole.py --epochs 40 --fine-tune       │
-│    python convert_to_tflite.py --model ... --output ...  │
-│                                                          │
-│  TO FLASH ESP32:                                         │
-│    Open tara_controller.ino in Arduino IDE → Upload      │
-│                                                          │
-│  TO RUN ON RPi:                                          │
-│    source ~/tara-venv/bin/activate                       │
-│    cd ~/TARA/rpi                                         │
-│    python3 main.py --debug            (with screen)      │
-│    python3 main.py                    (headless)         │
-│    python3 main.py --no-serial        (camera only)      │
-│                                                          │
-│  TO CHANGE SETTINGS:                                     │
-│    Edit rpi/config.py                                    │
-│                                                          │
-│  TO STOP:                                                │
-│    Press Ctrl+C  (or press 'q' in debug window)          │
-│                                                          │
-└──────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                    TARA QUICK REFERENCE                      │
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│  TRAIN MODELS (PC):                                          │
+│    cd training/                                              │
+│    python train_tsr.py --epochs 50 --fine-tune               │
+│    python train_pothole.py --epochs 40 --fine-tune           │
+│    python convert_to_tflite.py --model ... --output ...      │
+│                                                              │
+│  FLASH ESP32:                                                │
+│    Open esp32/Dashboard/ in Arduino IDE -> Upload            │
+│                                                              │
+│  CONFIGURE:                                                  │
+│    Edit rpi/config.py -> set ESP32_HOST and CAMERA_INDEX     │
+│                                                              │
+│  RUN ON RPi:                                                 │
+│    source ~/tara-venv/bin/activate && cd ~/TARA/rpi          │
+│    python3 main.py --debug            # with MJPEG stream    │
+│    python3 main.py                    # headless             │
+│    python3 main.py --no-wifi --debug  # camera only          │
+│    python3 brute_force_lane.py --debug  # no-ML fallback     │
+│                                                              │
+│  DEBUG STREAM:  http://<RPI_IP>:5000/                        │
+│  DASHBOARD:     http://<ESP32_IP>/                           │
+│                                                              │
+│  STOP:  Ctrl+C                                               │
+│                                                              │
+│  SIMULATION:                                                 │
+│    github.com/rushikesh-D69/                                 │
+│    TARA-Tracking_Adaptive_Road_Autonomous_Car                │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
 ```

@@ -1,24 +1,21 @@
 """
 TARA ADAS — Decision Manager
-Priority-based arbitrator combining all ADAS module outputs
-into a single normalized (x, y) command for the ESP32.
+Priority-based arbitrator that combines all ADAS module outputs
+into a single normalised (x, y) command for the ESP32.
 
-ESP32 motorTask maps:
+ESP32 motor mapping:
     jd.x  = steering  (-1.0 left … +1.0 right)
     jd.y  = throttle  (0.0 stop … 1.0 full forward)
     targetVL = jd.y + jd.x
-    targetVR = jd.y - jd.x   (open-loop → applyOpenLoop → PWM)
-
-All PID loops removed from this side — the ESP32 handles motor control.
-The RPi only decides WHAT direction/speed to aim for.
+    targetVR = jd.y - jd.x
 
 Priority (highest → lowest):
-  1. Traffic Light RED/YELLOW                — bypasses smoothing
-  2. Pothole Avoidance (override steering)   — blended release
-  3. TSR Speed Cap                           — with auto-expiry
-  4. ACC Throttle (cruise speed)             — vision-only, no distance
-  5. Lane Keeping Assist (steering)          — with confidence weighting
-  6. LDW Warning (flag only)
+  1. Traffic Light RED/YELLOW  — bypasses smoothing
+  2. Pothole Avoidance         — blended release
+  3. TSR Speed Cap             — with auto-expiry
+  4. ACC Throttle              — vision-only cruise speed
+  5. Lane Keeping Assist       — confidence-weighted steering
+  6. LDW Warning               — flag only
 """
 import time
 from utils.logger import get_logger
@@ -28,40 +25,33 @@ log = get_logger("Decision")
 
 class Command:
     """
-    Normalized command for the ESP32.
-    steer_x:  -1.0 (hard left) … +1.0 (hard right)  → jd.x
-    speed_y:   0.0 (stop)      … +1.0 (full speed)   → jd.y
-    flags:    bit-field
+    Normalised command for the ESP32.
+      steer_x: -1.0 (hard left) … +1.0 (hard right)  → jd.x
+      speed_y:  0.0 (stop)      … +1.0 (full speed)   → jd.y
+      flags:   bit-field (0x01=LDW, 0x02=Pothole, 0x08=TSR, 0x10=TL)
     """
 
     def __init__(self):
-        self.steer_x = 0.0   # -1.0 … 1.0
-        self.speed_y = 0.0   # 0.0 … 1.0
+        self.steer_x = 0.0
+        self.speed_y = 0.0
         self.flags   = 0
-        # Flag bits:
-        #   0x01 = LDW warning
-        #   0x02 = Pothole detected
-        #   0x08 = TSR sign detected
-        #   0x10 = Traffic light RED/YELLOW
 
-    # compat shims so existing log/print code still works
     @property
     def steering(self):
-        return round(self.steer_x * 100)   # -100 … 100 int view
+        return round(self.steer_x * 100)
 
     @property
     def speed(self):
-        return round(self.speed_y * 255)   # 0 … 255 int view
+        return round(self.speed_y * 255)
 
     def to_ws(self):
-        """Serialize for ESP32 auto_cmd WebSocket message."""
+        """Serialise for ESP32 auto_cmd WebSocket message."""
         return {
             "type": "auto_cmd",
             "x":    round(max(-1.0, min(1.0, self.steer_x)), 4),
             "y":    round(max( 0.0, min(1.0, self.speed_y)), 4),
         }
 
-    # Legacy: kept for backward-compat with logging code
     def to_serial(self):
         x = round(max(-1.0, min(1.0, self.steer_x)), 4)
         y = round(max( 0.0, min(1.0, self.speed_y)), 4)
@@ -75,80 +65,60 @@ class Command:
 class DecisionManager:
     """
     Combines all ADAS outputs with priority-based arbitration.
-    Outputs a normalized Command; no PID runs here.
+    Outputs a normalised Command; no PID runs here.
 
-    Key design decisions:
-    - Emergency stop and red-light BYPASS exponential smoothing
-    - Steering smoothing is light (α=0.35) since lane detector already smooths
-    - Pothole avoidance has a gradual blend-back on release
-    - TSR speed cap auto-expires after 10 seconds of no re-detection
+    Design notes:
+    - Emergency stop and red-light BYPASS exponential smoothing.
+    - Steering smoothing is light (α=0.10) since the lane detector
+      already smooths via polynomial history.
+    - Pothole avoidance has a gradual blend-back on release.
+    - TSR speed cap auto-expires after 10 s of no re-detection.
     """
 
     def __init__(self, config):
         self.cfg = config
 
-        # Default cruise speed (normalized)
-        self._cruise_speed   = config.ACC_DEFAULT_SPEED / 255.0
-        self._max_speed      = config.ACC_MAX_SPEED     / 255.0
+        self._cruise_speed = config.ACC_DEFAULT_SPEED / 255.0
+        self._max_speed    = config.ACC_MAX_SPEED     / 255.0
 
-        # ── Startup gate ──────────────────────────────────────────────
-        # Car stays stationary until lanes are confirmed for N frames.
-        # This prevents launching at cruise speed before the camera
-        # has acquired the track.
-        self._startup_complete      = False
-        self._startup_lane_count    = 0
-        self._startup_required      = 5   # need 5 consecutive lane detections
+        self._startup_complete   = False
+        self._startup_lane_count = 0
+        self._startup_required   = 5
 
-        # Last known values (persisted between scheduled frames)
-        self._last_steer_x   = 0.0
-        self._last_speed_y   = 0.0   # START at zero (not cruise!)
+        self._last_steer_x = 0.0
+        self._last_speed_y = 0.0
 
-        # Smoothing state (exponential moving average)
-        # α close to 1 = heavier smoothing (slower response)
-        # Reduced from 0.55 — lane detector already smooths via polynomial history
-        self._smooth_steer   = 0.0
-        self._smooth_speed   = 0.0   # START at zero (ramp up via EMA once lanes found)
-        self._steer_alpha    = 0.10   # reduced from 0.20 for maximum response
-        self._speed_alpha    = 0.40   # reduced from 0.60 for faster speed adjustment
+        self._smooth_steer = 0.0
+        self._smooth_speed = 0.0
+        self._steer_alpha  = 0.10
+        self._speed_alpha  = 0.40
 
-        # Lane-loss fail-safe
         self._lane_lost_frames    = 0
-        self._lane_lost_threshold = 8   # Allow 8 frames of "memory" during sharp turns
+        self._lane_lost_threshold = 8
 
-        # Pothole avoidance state
-        self._pothole_active      = False
-        self._pothole_steer_x     = 0.0
-        self._pothole_start_time  = 0.0
-        self._pothole_hold_sec    = 0.8    # hold dodge for 0.8 seconds (time-based, not encoder)
-        self._pothole_blend_sec   = 0.4    # gradual release over 0.4 seconds
+        self._pothole_active     = False
+        self._pothole_steer_x    = 0.0
+        self._pothole_start_time = 0.0
+        self._pothole_hold_sec   = 0.8
+        self._pothole_blend_sec  = 0.4
 
-        # Temporal validation — require 2 consecutive detections
         self._prev_pothole_detected = False
 
-        # Traffic light
         self._last_tl_state = "UNKNOWN"
 
-        # TSR-derived speed cap with auto-expiry
-        self._tsr_speed_cap       = None
-        self._tsr_last_seen_time  = 0.0
-        self._tsr_expiry_sec      = 10.0   # clear speed cap after 10s of no re-detection
+        self._tsr_speed_cap      = None
+        self._tsr_last_seen_time = 0.0
+        self._tsr_expiry_sec     = 10.0
 
-        # ── Sign Turn Maneuver State ──────────────────────────────────
-        # Phase 1: DELAY (Wait until car reaches the turn point)
-        # Phase 2: TURN  (Execute the sharp steer)
         self._sign_turn_active     = False
         self._sign_turn_direction  = None
         self._sign_turn_start_time = 0.0
-        
         self._sign_turn_delay_sec  = getattr(config, 'SIGN_TURN_DELAY_SEC', 1.0)
         self._sign_turn_hold_sec   = getattr(config, 'SIGN_TURN_HOLD_SEC', 1.5)
 
-        # Perception health
         self._no_perception_frames = 0
 
         log.info("DecisionManager initialized — car HELD until lanes detected")
-
-    # ─────────────────────────────────────────────────────────────────────────
 
     def update(self, lane_result=None, tsr_result=None,
                pothole_result=None, acc_result=None, tl_result=None,
@@ -156,175 +126,132 @@ class DecisionManager:
         """
         Combine ADAS module outputs into a single Command.
 
-        No sensor_data parameter — ultrasonic removed.
         All inputs are optional; missing modules are skipped gracefully.
-        Returns a Command ready to call .to_ws() on.
+        Returns a Command with .to_ws() ready to send.
 
-        Priority processing order (highest first):
-        Traffic Light > Pothole > TSR > ACC > LKA > LDW
+        Priority order: Traffic Light > Pothole > TSR > ACC > LKA > LDW
         """
-        cmd = Command()
+        cmd            = Command()
         has_perception = False
-        now = time.monotonic()
+        now            = time.monotonic()
 
-        # ═══════════════════════════════════════════════════════════════════
-        # STARTUP GATE: Hold car stationary until lanes are confirmed.
-        # The car must see lanes for 3 consecutive frames before it moves.
-        # This prevents launching off the track on boot.
-        # ═══════════════════════════════════════════════════════════════════
+        # Startup gate — hold until lanes confirmed
         if not self._startup_complete:
             if lane_result is not None and lane_result.lane_detected:
                 self._startup_lane_count += 1
                 if self._startup_lane_count >= self._startup_required:
                     self._startup_complete = True
-                    self._last_speed_y = self._cruise_speed
-                    log.info("✓ Lanes confirmed — car RELEASED, starting autonomous drive")
+                    self._last_speed_y     = self._cruise_speed
+                    log.info("Lanes confirmed — car RELEASED, starting autonomous drive")
                 else:
                     log.info(f"Startup: lanes detected ({self._startup_lane_count}/{self._startup_required})...")
             else:
-                self._startup_lane_count = 0  # reset on miss
+                self._startup_lane_count = 0
                 log.debug("Startup: waiting for lane detection...")
 
             if not self._startup_complete:
-                # Still waiting — send zero speed, zero steer
                 cmd.steer_x = 0.0
                 cmd.speed_y = 0.0
                 return cmd
 
-        # ── Expire stale TSR speed cap ────────────────────────────────────
+        # Expire stale TSR speed cap
         if (self._tsr_speed_cap is not None and
                 now - self._tsr_last_seen_time > self._tsr_expiry_sec):
-            log.info(f"TSR speed cap expired (no sign for {self._tsr_expiry_sec:.0f}s)")
+            log.info(f"TSR speed cap expired ({self._tsr_expiry_sec:.0f}s without detection)")
             self._tsr_speed_cap = None
 
-        # ═══════════════════════════════════════════════════════════════════
-        # PHASE 1: Gather inputs from all modules (low → high priority)
-        # ═══════════════════════════════════════════════════════════════════
-
-        # ── Priority 7: LDW flag ──────────────────────────────────────────
+        # Priority 7: LDW flag + lane steering
         if lane_result is not None:
             if lane_result.departure_warning:
                 cmd.flags |= 0x01
 
             if lane_result.lane_detected:
-                has_perception = True
+                has_perception         = True
                 self._lane_lost_frames = 0
-                # steering_correction is already normalized: -1.0 … 1.0
-                # Weight by detection confidence for smoother single-lane behavior
-                # Increase gain for indoor track (proportional steering)
-                steer_gain = 2.0
-                confidence_weight = getattr(lane_result, 'confidence', 1.0)
-                self._last_steer_x = lane_result.steering_correction * steer_gain * min(1.0, confidence_weight + 0.3)
+                steer_gain             = 2.0
+                confidence_weight      = getattr(lane_result, 'confidence', 1.0)
+                self._last_steer_x     = (lane_result.steering_correction
+                                          * steer_gain
+                                          * min(1.0, confidence_weight + 0.3))
             else:
                 self._lane_lost_frames += 1
 
-        # ── Priority 5: ACC throttle ──────────────────────────────────────────────
+        # Priority 5: ACC throttle
         if acc_result is not None:
             has_perception = True
-            # ACC speed_norm = cruise speed (vision-only, no distance zones)
             spd = acc_result.speed_norm
             if self._tsr_speed_cap is not None:
                 spd = min(spd, self._tsr_speed_cap)
             self._last_speed_y = spd
 
-        # ── Priority 4: TSR speed cap ─────────────────────────────────────
+        # Priority 4: TSR speed cap
         if tsr_result is not None and tsr_result.sign_detected:
-            has_perception = True
-            cmd.flags |= 0x08
+            has_perception           = True
+            cmd.flags               |= 0x08
             self._tsr_last_seen_time = now
 
             if tsr_result.speed_limit is not None:
-                # speed_limit is already normalized (0.0–1.0) from config.TSR_SPEED_LIMITS
                 self._tsr_speed_cap = tsr_result.speed_limit
 
             if tsr_result.is_stop_sign:
                 self._tsr_speed_cap = 0.0
-                self._last_speed_y = 0.0
+                self._last_speed_y  = 0.0
 
-        # ── Assemble base command from LKA + ACC ──────────────────────────
         raw_steer = self._last_steer_x
         raw_speed = self._last_speed_y
 
-        # ── OpenCV Sign Hint (Landmark Navigation Maneuver) ───────────────
+        # OpenCV sign — landmark navigation maneuver
         if sign_hint in ["LEFT", "RIGHT"]:
-            # Trigger or refresh the maneuver
             if not self._sign_turn_active or self._sign_turn_direction != sign_hint:
-                log.info(f"SIGN DETECTED: {sign_hint} — Entering {self._sign_turn_delay_sec}s DELAY phase")
-            
-            self._sign_turn_active = True
-            self._sign_turn_direction = sign_hint
+                log.info(f"SIGN DETECTED: {sign_hint} — entering {self._sign_turn_delay_sec}s delay")
+            self._sign_turn_active     = True
+            self._sign_turn_direction  = sign_hint
             self._sign_turn_start_time = now
 
-        # Apply maneuver if active
         if self._sign_turn_active:
-            elapsed = now - self._sign_turn_start_time
+            elapsed        = now - self._sign_turn_start_time
             total_duration = self._sign_turn_delay_sec + self._sign_turn_hold_sec
-            
+
             if elapsed < self._sign_turn_delay_sec:
-                # ── PHASE 1: DELAY ──────────────────────────────────────────
-                # Keep following lanes or go straight, but slow down in preparation
-                raw_speed *= 0.8 
-                # We do NOT override steer here; let LKA handle the straight bit
+                raw_speed *= 0.8
             elif elapsed < total_duration:
-                # ── PHASE 2: SHARP TURN ─────────────────────────────────────
-                if elapsed - self._sign_turn_delay_sec < 0.1: # Just started phase 2
-                    log.info(f"SIGN MANEUVER: Executing SHARP {self._sign_turn_direction} turn")
-                
-                # Force very hard steering bias (90-degree-like turn)
-                bias = -0.95 if self._sign_turn_direction == "LEFT" else 0.95
-                self._last_steer_x = bias
-                raw_speed *= 0.4   # Slow down even more for the sharp pivot
-                
-                # Update raw values to bypass LKA
-                raw_steer = bias
+                if elapsed - self._sign_turn_delay_sec < 0.1:
+                    log.info(f"SIGN MANEUVER: executing SHARP {self._sign_turn_direction} turn")
+                bias                = -0.95 if self._sign_turn_direction == "LEFT" else 0.95
+                self._last_steer_x  = bias
+                raw_speed          *= 0.4
+                raw_steer           = bias
             else:
                 self._sign_turn_active = False
-                log.info(f"SIGN MANEUVER: Completed Turn {self._sign_turn_direction}")
+                log.info(f"SIGN MANEUVER: completed {self._sign_turn_direction}")
 
-        # ── Dynamic Speed Reduction (Turn Compensation) ──────────────────
-        # Reduce speed by up to 60% based on steering severity
+        # Dynamic speed reduction on tight steering
         steer_abs = abs(raw_steer)
         if steer_abs > 0.3:
             speed_factor = 1.0 - (steer_abs - 0.3) * 0.8
-            raw_speed *= max(0.4, speed_factor)
+            raw_speed   *= max(0.4, speed_factor)
 
-        # ── Lane-loss / Curve Memory Fail-safe ────────────────────────────
+        # Lane-loss fail-safe
         if self._lane_lost_frames > 0:
-            # Slow down immediately when lane is unsure
             raw_speed *= 0.7
 
             if self._lane_lost_frames < self._lane_lost_threshold:
-                # IMPORTANT: HOLD last known steering during temporary loss
-                # This helps the car "blindly" finish a curve.
                 raw_steer = self._last_steer_x
             else:
-                raw_steer = 0.0  # Safe stop/straight after too long
+                raw_steer = 0.0
                 if self._lane_lost_frames == 10:
                     log.error("LANE LOST for 10 frames — EMERGENCY STOP")
 
-        # ═══════════════════════════════════════════════════════════════════
-        # PHASE 2: Apply exponential smoothing to base command
-        # This runs BEFORE priority overrides so that E-STOP and TL
-        # can bypass it for instant response.
-        # ═══════════════════════════════════════════════════════════════════
-
-        self._smooth_steer = (
-            self._steer_alpha * self._smooth_steer +
-            (1 - self._steer_alpha) * raw_steer
-        )
-        self._smooth_speed = (
-            self._speed_alpha * self._smooth_speed +
-            (1 - self._speed_alpha) * raw_speed
-        )
+        # Exponential smoothing (base command)
+        self._smooth_steer = (self._steer_alpha * self._smooth_steer +
+                              (1 - self._steer_alpha) * raw_steer)
+        self._smooth_speed = (self._speed_alpha * self._smooth_speed +
+                              (1 - self._speed_alpha) * raw_speed)
 
         cmd.steer_x = self._smooth_steer
         cmd.speed_y = self._smooth_speed
 
-        # ═══════════════════════════════════════════════════════════════════
-        # PHASE 3: Priority overrides (AFTER smoothing — these bypass it)
-        # ═══════════════════════════════════════════════════════════════════
-
-        # ── Priority 3: Pothole avoidance (override steering) ─────────────
+        # Priority 3: Pothole avoidance (overrides steering post-smoothing)
         pothole_confirmed = False
         if pothole_result is not None and pothole_result.pothole_detected:
             has_perception = True
@@ -335,65 +262,55 @@ class DecisionManager:
             self._prev_pothole_detected = False
 
         if pothole_confirmed and not self._pothole_active:
-            # Start avoidance maneuver
-            self._pothole_steer_x = pothole_result.avoidance_steer / 100.0
+            self._pothole_steer_x    = pothole_result.avoidance_steer / 100.0
             self._pothole_start_time = now
-            self._pothole_active = True
+            self._pothole_active     = True
             log.info(f"Pothole avoidance started: steer={self._pothole_steer_x:.2f}")
 
         if self._pothole_active:
-            elapsed = now - self._pothole_start_time
+            elapsed        = now - self._pothole_start_time
             total_duration = self._pothole_hold_sec + self._pothole_blend_sec
 
             if elapsed < self._pothole_hold_sec:
-                # Full avoidance steering
-                cmd.steer_x = self._pothole_steer_x
-                cmd.speed_y = cmd.speed_y * 0.6
-                cmd.flags |= 0x02
+                cmd.steer_x  = self._pothole_steer_x
+                cmd.speed_y *= 0.6
+                cmd.flags   |= 0x02
             elif elapsed < total_duration:
-                # Gradual blend-back to LKA steering
                 blend_progress = (elapsed - self._pothole_hold_sec) / self._pothole_blend_sec
-                cmd.steer_x = (1.0 - blend_progress) * self._pothole_steer_x + \
-                              blend_progress * self._smooth_steer
-                cmd.speed_y = cmd.speed_y * (0.6 + 0.4 * blend_progress)
-                cmd.flags |= 0x02
+                cmd.steer_x   = ((1.0 - blend_progress) * self._pothole_steer_x
+                                 + blend_progress * self._smooth_steer)
+                cmd.speed_y  *= (0.6 + 0.4 * blend_progress)
+                cmd.flags    |= 0x02
             else:
-                # Avoidance complete
                 self._pothole_active = False
                 log.info(f"Pothole avoidance done ({elapsed:.1f}s)")
 
-        # ── Priority 2: Traffic Light ─────────────────────────────────────
-        # Overrides speed directly — bypasses smoothing for safety.
+        # Priority 2: Traffic light (bypasses smoothing)
         if tl_result is not None and tl_result.detected:
-            has_perception = True
+            has_perception      = True
             self._last_tl_state = tl_result.state
 
             if tl_result.state == "RED":
-                cmd.speed_y = 0.0
-                cmd.flags |= 0x10
-                # Also reset the speed smoother so we don't ramp back up slowly
-                self._smooth_speed = 0.0
+                cmd.speed_y         = 0.0
+                cmd.flags          |= 0x10
+                self._smooth_speed  = 0.0
             elif tl_result.state == "YELLOW":
-                cmd.speed_y = cmd.speed_y * 0.3
-                cmd.flags |= 0x10
+                cmd.speed_y        = cmd.speed_y * 0.3
+                cmd.flags         |= 0x10
                 self._smooth_speed = cmd.speed_y
 
-        # ── Priority 1: (E-STOP removed — no ultrasonic sensor) ───────────────
-        # Traffic light RED is now the highest-priority stop.
-
-        # ── Perception health fallback ───────────────────────────────────────
+        # Perception health fallback
         if has_perception:
             self._no_perception_frames = 0
         else:
             self._no_perception_frames += 1
             if self._no_perception_frames >= 5:
-                # Gradual slowdown if nothing is working
                 cmd.speed_y = cmd.speed_y * 0.85
                 cmd.steer_x = 0.0
                 if self._no_perception_frames == 5:
                     log.warning("No perception for 5 frames — gradual safe slowdown")
 
-        # ── Hard clamp ───────────────────────────────────────────────────
+        # Hard clamp
         cmd.steer_x = max(-1.0, min(1.0, cmd.steer_x))
         cmd.speed_y = max(0.0,  min(1.0, cmd.speed_y))
 

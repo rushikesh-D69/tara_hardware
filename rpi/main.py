@@ -1,8 +1,8 @@
 """
-TARA ADAS — Main Pipeline  (Raspberry Pi 4B Edition)
-Time-multiplexed ADAS scheduler — all ML runs locally, no cloud required.
+TARA ADAS — Main Pipeline (Raspberry Pi 4B)
+Time-multiplexed ADAS scheduler running all ML inference locally.
 
-Schedule (per frame):
+Frame schedule (4-frame cycle):
   Frame 0: Lane + ACC
   Frame 1: Lane + TSR
   Frame 2: Lane + ACC + TLR
@@ -10,18 +10,16 @@ Schedule (per frame):
 
 Usage:
   python3 main.py                 # Normal mode
-  python3 main.py --debug         # With OpenCV window overlay
-  python3 main.py --no-serial     # Without ESP32 (vision-only testing)
+  python3 main.py --debug         # MJPEG debug stream at http://<RPI_IP>:5000/
+  python3 main.py --no-wifi       # Vision-only (no ESP32 connection)
   python3 main.py --no-cloud      # Offline mode
   python3 main.py --video x.mp4   # Use video file instead of camera
 """
-# ── Suppress TensorFlow / oneDNN noise BEFORE any TF import ───────────────────
-# Must be set before 'import ai_edge_litert' or 'import tensorflow' is called.
 import os
-os.environ.setdefault("TF_ENABLE_ONEDNN_OPTS", "0")   # kill oneDNN warnings
-os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")    # suppress C++ TF logs
-os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")      # no GPU on RPi
-os.environ.setdefault("OPENCV_VIDEOIO_PRIORITY_MSMF", "0")  # skip MSMF on RPi
+os.environ.setdefault("TF_ENABLE_ONEDNN_OPTS", "0")
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
+os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
+os.environ.setdefault("OPENCV_VIDEOIO_PRIORITY_MSMF", "0")
 
 import sys
 import time
@@ -31,7 +29,6 @@ import threading
 import cv2
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-# ── Ensure the rpi/ directory is on the import path ───────────────────────────
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import config
@@ -47,21 +44,25 @@ from comms.ws_bridge import WsBridge
 from utils.fps_counter import FPSCounter
 from utils.logger import setup_logger, get_logger
 
-# ── MJPEG Stream Server (headless debug — no monitor needed) ──────────────────
-_mjpeg_frame   = None          # latest JPEG bytes, updated by pipeline
-_mjpeg_lock    = threading.Lock()
-_MJPEG_PORT    = 5000
+# ── MJPEG Stream Server ───────────────────────────────────────────────────────
+_mjpeg_frame = None
+_mjpeg_lock  = threading.Lock()
+_MJPEG_PORT  = 5000
+
 
 class _MjpegHandler(BaseHTTPRequestHandler):
-    def log_message(self, *a): pass   # silence HTTP access log
+    def log_message(self, *a): pass
+
     def do_GET(self):
         if self.path == '/':
             self.send_response(200)
             self.send_header('Content-Type', 'text/html')
             self.end_headers()
-            self.wfile.write(b'<html><body style="margin:0;background:#000">' +
-                             b'<img src="/stream" style="width:100%;max-width:800px">'
-                             b'</body></html>')
+            self.wfile.write(
+                b'<html><body style="margin:0;background:#000">'
+                b'<img src="/stream" style="width:100%;max-width:800px">'
+                b'</body></html>'
+            )
         elif self.path == '/stream':
             self.send_response(200)
             self.send_header('Content-Type',
@@ -75,14 +76,16 @@ class _MjpegHandler(BaseHTTPRequestHandler):
                         self.wfile.write(
                             b'--frame\r\nContent-Type: image/jpeg\r\n\r\n'
                             + jpg + b'\r\n')
-                    time.sleep(0.04)   # ~25 fps cap
+                    time.sleep(0.04)
             except (BrokenPipeError, ConnectionResetError):
                 pass
         else:
             self.send_error(404)
 
+
 class _ReusableHTTPServer(HTTPServer):
     allow_reuse_address = True
+
 
 def _start_mjpeg_server():
     srv = _ReusableHTTPServer(('0.0.0.0', _MJPEG_PORT), _MjpegHandler)
@@ -90,14 +93,16 @@ def _start_mjpeg_server():
     t.start()
     return srv
 
+
 def _push_mjpeg_frame(bgr_frame):
-    """Call from the pipeline to update the streamed frame."""
     global _mjpeg_frame
     ok, buf = cv2.imencode('.jpg', bgr_frame, [cv2.IMWRITE_JPEG_QUALITY, 75])
     if ok:
         with _mjpeg_lock:
             _mjpeg_frame = buf.tobytes()
 
+
+# ── Argument Parsing ──────────────────────────────────────────────────────────
 
 def parse_args():
     parser = argparse.ArgumentParser(description="TARA ADAS — RPi Pipeline")
@@ -114,30 +119,27 @@ def parse_args():
     return parser.parse_args()
 
 
+# ── Main ADAS Coordinator ─────────────────────────────────────────────────────
 
 class TARAAdas:
     """
     Main ADAS pipeline coordinator.
-    Manages all modules and the time-multiplexed scheduling.
+    Owns all module instances and runs the time-multiplexed scheduling loop.
     """
 
     def __init__(self, args):
-        self.args = args
+        self.args    = args
         self.running = False
 
-        # Setup logging
         setup_logger("TARA", level=args.log_level, log_file=config.LOG_FILE)
         self.log = get_logger("Main")
 
-        # Frame counter for scheduling
         self.frame_num = 0
 
-        # Initialize modules
         self.log.info("=" * 50)
         self.log.info("  TARA ADAS — Initializing")
         self.log.info("=" * 50)
 
-        # Camera
         if args.video:
             self.camera = CameraCapture(
                 index=args.video,
@@ -152,16 +154,14 @@ class TARAAdas:
                 fps=config.CAMERA_FPS,
             )
 
-        # ADAS modules
-        self.lane_detector = LaneDetector(config)
-        self.sign_detector = SignDetectorCV(config)
-        self.tsr = TrafficSignRecognizer(config)
+        self.lane_detector    = LaneDetector(config)
+        self.sign_detector    = SignDetectorCV(config)
+        self.tsr              = TrafficSignRecognizer(config)
         self.pothole_detector = PotholeDetector(config)
-        self.acc = AdaptiveCruiseControl(config)
-        self.tl_detector = TrafficLightDetector(config)
+        self.acc              = AdaptiveCruiseControl(config)
+        self.tl_detector      = TrafficLightDetector(config)
         self.decision_manager = DecisionManager(config)
 
-        # Communication — WiFi WebSocket to ESP32
         self.ws = None
         if not args.no_wifi:
             self.ws = WsBridge(
@@ -170,36 +170,31 @@ class TARAAdas:
                 path=config.ESP32_WS_PATH,
             )
 
-        # MJPEG stream server for headless debug
         self._mjpeg_server = None
         if args.debug:
             self._mjpeg_server = _start_mjpeg_server()
-            self.log.info(f"Debug stream: http://<RPI_IP>:{_MJPEG_PORT}/  (view in browser)")
+            self.log.info(f"Debug stream: http://<RPI_IP>:{_MJPEG_PORT}/")
 
-        # Performance tracking
         self.fps = FPSCounter(window_size=30)
 
-        # Latest results (persist between frames for non-scheduled modules)
-        self._last_lane = None
+        self._last_lane      = None
         self._last_sign_hint = None
-        self._last_tsr = None
-        self._last_pothole = None
-        self._last_acc = None
-        self._last_tl = None
-        self._last_frame = None  # Keep reference for event snapshots
+        self._last_tsr       = None
+        self._last_pothole   = None
+        self._last_acc       = None
+        self._last_tl        = None
+        self._last_frame     = None
 
     def start(self):
-        """Initialize all hardware and start the ADAS pipeline."""
+        """Open hardware, load models, connect to ESP32."""
         self.log.info("Starting TARA ADAS pipeline...")
 
-        # Start camera
         try:
             self.camera.start()
         except RuntimeError as e:
             self.log.error(f"Camera failed: {e}")
             return False
 
-        # Load ML models
         tsr_ok = self.tsr.load_model()
         if not tsr_ok:
             self.log.warning("TSR model not loaded — traffic sign recognition disabled")
@@ -208,7 +203,6 @@ class TARAAdas:
         if not pothole_ok:
             self.log.warning("Pothole model not loaded — pothole detection disabled")
 
-        # Connect to ESP32 via WiFi WebSocket
         if self.ws:
             if not self.ws.connect():
                 self.log.warning("ESP32 WiFi not connected — running in vision-only mode")
@@ -222,7 +216,6 @@ class TARAAdas:
             mode_parts.append(f"ESP32 WiFi ({config.ESP32_HOST})")
         self.log.info(f"  Mode: {' + '.join(mode_parts)}")
         self.log.info("=" * 50)
-
         return True
 
     def run(self):
@@ -241,61 +234,48 @@ class TARAAdas:
 
     def _process_frame(self):
         """Process a single frame through the scheduled pipeline."""
-        # Grab latest frame
         frame = self.camera.read()
         if frame is None:
             time.sleep(0.01)
             return
 
         self.fps.tick()
-        cycle_pos = self.frame_num % 4  # 4-frame cycle
+        cycle_pos = self.frame_num % 4
 
-        # ── Always run: Lane Detection ────────────────────────────────────
         t = self.fps.start_module("Lane")
         self._last_lane = self.lane_detector.detect(frame, debug=self.args.debug)
         self.fps.stop_module(t)
 
-        # ── Scheduled: TSR (frame 1, 5, 9, ...) ──────────────────────────
         if cycle_pos == config.SCHEDULE_TSR_OFFSET % 4:
             t = self.fps.start_module("TSR")
             self._last_tsr = self.tsr.detect(frame)
             self.fps.stop_module(t)
 
-            # Update ACC with TSR speed limit (already normalized 0.0–1.0)
             if (self._last_tsr and self._last_tsr.sign_detected
                     and self._last_tsr.speed_limit is not None):
                 self.acc.set_speed_limit(self._last_tsr.speed_limit)
 
-        # ── Scheduled: Pothole (frame 3, 7, 11, ...) ─────────────────────
         if cycle_pos == config.SCHEDULE_POTHOLE_OFFSET % 4:
             t = self.fps.start_module("Pothole")
             self._last_pothole = self.pothole_detector.detect(frame)
             self.fps.stop_module(t)
 
-        # ── Scheduled: ACC speed policy (every 2nd frame) ───────────────────
         if cycle_pos % config.SCHEDULE_ACC_EVERY == 0:
             t = self.fps.start_module("ACC")
-            self._last_acc = self.acc.update()   # no sensor data needed
+            self._last_acc = self.acc.update()
             self.fps.stop_module(t)
 
-        # ── Scheduled: Traffic Light (frames 0, 2) ─────────────────────────
         if cycle_pos % 2 == 0:
             t = self.fps.start_module("TLR")
             self._last_tl = self.tl_detector.detect(frame)
             self.fps.stop_module(t)
 
-        # ── Always run (or every 2nd frame): OpenCV Sign Detector ───────
-        # 3. Directional Sign detection (OpenCV fallback)
-        # Runs every 2nd frame for responsive landmark detection
         if self.frame_num % 2 == 0:
             t = self.fps.start_module("SignCV")
-            # For ground signs, the Bird's Eye View (BEV) is much more robust
-            # as it un-warps the road surface.
             bev_frame = self.lane_detector.warp_bev(frame)
             self._last_sign_hint = self.sign_detector.detect(bev_frame)
             self.fps.stop_module(t)
 
-        # ── Always run: Decision Manager ──────────────────────────────────
         t = self.fps.start_module("Decision")
         command = self.decision_manager.update(
             lane_result=self._last_lane,
@@ -304,21 +284,12 @@ class TARAAdas:
             pothole_result=self._last_pothole,
             acc_result=self._last_acc,
             tl_result=self._last_tl,
-            # no sensor_data — ultrasonic removed
         )
         self.fps.stop_module(t)
 
-        if self.ws:
-            # ── Send command to ESP32 via WiFi WebSocket ─────────────────
-            # DISABLED: Only sending video stream with detection now
-            # self.ws.send_command(command)
-            pass
-
-        # ── Debug visualization ────────────────────────────────────────
         if self.args.debug:
             self._show_debug(frame, command)
 
-        # ── Console output ─────────────────────────────────────────────
         if config.LOG_FPS and self.frame_num % 30 == 0:
             self.log.info(self.fps.summary())
 
@@ -326,16 +297,14 @@ class TARAAdas:
         self.frame_num += 1
 
     def _show_debug(self, frame, command):
-        """Show debug visualization window."""
+        """Compose annotated debug frame and push to the MJPEG server."""
         display = frame.copy()
 
-        # Overlay lane detection debug if available
         if self._last_lane and self._last_lane.debug_frame is not None:
             debug_small = self._last_lane.debug_frame
             dh, dw = debug_small.shape[:2]
             display[0:dh, 0:dw] = debug_small
 
-        # Draw status panel on the right
         panel_x = display.shape[1] - 220
         panel_y = 10
 
@@ -353,7 +322,6 @@ class TARAAdas:
             "---",
         ]
 
-        # Lane
         if self._last_lane:
             lane_status = "DETECTED" if self._last_lane.lane_detected else "LOST"
             texts.append(f"Lane: {lane_status}")
@@ -361,25 +329,21 @@ class TARAAdas:
             if self._last_lane.departure_warning:
                 texts.append("  !! LDW WARNING !!")
 
-        # TSR
         if self._last_tsr and self._last_tsr.sign_detected:
             texts.append(f"TSR: {self._last_tsr.class_name}")
             texts.append(f"  Conf: {self._last_tsr.confidence:.2f}")
         else:
             texts.append("TSR: --")
 
-        # Pothole
         if self._last_pothole and self._last_pothole.pothole_detected:
             texts.append(f"POTHOLE: {self._last_pothole.position}")
         else:
             texts.append("Pothole: clear")
 
-        # ACC — vision-only, shows speed setpoint only (no distance)
         if self._last_acc:
             texts.append(f"ACC: {self._last_acc.mode}")
             texts.append(f"  Speed: {self._last_acc.speed_norm:.2f}")
 
-        # Traffic light
         if self._last_tl and self._last_tl.detected:
             texts.append(f"TL: {self._last_tl.state}")
             texts.append(f"  Conf: {self._last_tl.confidence:.3f}")
@@ -395,24 +359,18 @@ class TARAAdas:
             cv2.putText(display, text, (panel_x, panel_y + 15 + i * 15),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.35, color, 1)
 
-        # Push to MJPEG stream (headless-safe — no GUI window needed)
         _push_mjpeg_frame(display)
-
 
     def stop(self):
         """Gracefully shut down all modules."""
         self.log.info("Stopping TARA ADAS...")
         self.running = False
 
-        # Send stop command to ESP32 via WiFi
         if self.ws:
             self.ws.send_stop()
             self.ws.disconnect()
 
-        # Stop camera
         self.camera.stop()
-
-        # MJPEG server is a daemon thread — stops automatically with the process
 
         self.log.info("=" * 50)
         self.log.info("  TARA ADAS — STOPPED")
@@ -420,19 +378,20 @@ class TARAAdas:
         self.log.info("=" * 50)
 
 
+# ── Entry Point ───────────────────────────────────────────────────────────────
+
 def main():
     args = parse_args()
     adas = TARAAdas(args)
 
     def signal_handler(sig, _frame):
-        # Set flag so the run loop exits naturally, then raise to unblock any sleep
         adas.running = False
 
     signal.signal(signal.SIGINT,  signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
     adas.run()
-    sys.exit(0)   # explicit clean exit — prevents exit code 1 from signal
+    sys.exit(0)
 
 
 if __name__ == "__main__":

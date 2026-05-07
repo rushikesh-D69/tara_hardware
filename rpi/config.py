@@ -1,117 +1,83 @@
 """
 TARA ADAS — Central Configuration
 All tunable parameters for the ADAS pipeline.
-Adjust these for your specific track/environment.
 """
 import os
 
-# ─── Paths ────────────────────────────────────────────────────────────────────
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
 MODELS_DIR = os.path.join(BASE_DIR, "models")
 
-# ─── Camera ───────────────────────────────────────────────────────────────────
-# USB webcam (confirmed) — index 0 is the first /dev/video* device.
-# If RPi shows multiple /dev/video* entries, try index 1 or 2.
-CAMERA_INDEX = 0
-FRAME_WIDTH = 640
-FRAME_HEIGHT = 480
-CAMERA_FPS = 30
+# ── Camera ────────────────────────────────────────────────────────────────────
+CAMERA_INDEX  = 0
+FRAME_WIDTH   = 640
+FRAME_HEIGHT  = 480
+CAMERA_FPS    = 30
 
-# Processing resolution (downscaled for speed)
-PROC_WIDTH = 320
+PROC_WIDTH  = 320
 PROC_HEIGHT = 240
 
-# ─── Serial Communication (RPi ↔ ESP32) ──────────────────────────────────────
-# ESP32 plugged into RPi USB — appears as /dev/ttyUSB0 (CP2102/CH340) or
-# /dev/ttyACM0 (native USB-CDC). Check with: ls /dev/tty*
-# ─── ESP32 WiFi / WebSocket ──────────────────────────────────────────────────────────────────────────────────────
-# All three nodes (ESP32, RPi, Dashboard PC) on the same WiFi network.
-# The RPi connects to the ESP32’s built-in WebSocket server.
-ESP32_HOST    = "192.168.43.40"   # ← SET THIS to your ESP32’s IP address
-ESP32_WS_PORT = 80                # HTTP/WS port (ESP32 AsyncWebServer default)
-ESP32_WS_PATH = "/ws"             # WebSocket endpoint path
-COMMAND_INTERVAL = 0.05           # Target send rate: 50 ms = 20 Hz
+# ── ESP32 WiFi / WebSocket ────────────────────────────────────────────────────
+ESP32_HOST       = "192.168.43.40"
+ESP32_WS_PORT    = 80
+ESP32_WS_PATH    = "/ws"
+COMMAND_INTERVAL = 0.05
 
-# ─── Lane Detection (LDW + LKA) ──────────────────────────────────────────────
-# Tuned for INDOOR track: black chart paper floor, white insulation tape lanes.
-
-# Primary lane detection method — adaptive thresholding (robust under indoor lighting)
+# ── Lane Detection (LDW + LKA) ────────────────────────────────────────────────
 LANE_USE_ADAPTIVE_THRESH = True
-LANE_ADAPTIVE_BLOCK_SIZE = 51    # Must be odd. Larger = less sensitive to local brightness variation.
-LANE_ADAPTIVE_C = -15            # Negative = detect pixels brighter than local mean.
-                                 # Set to -15 for light marble floor (less aggressive).
+LANE_ADAPTIVE_BLOCK_SIZE = 51
+LANE_ADAPTIVE_C          = -15
+LANE_MORPH_KERNEL        = 5
+LANE_STEERING_DEADBAND   = 0
 
-# Morphological kernel size (for closing gaps + removing noise)
-# 5 handles glossy chart-paper reflections better than 3
-LANE_MORPH_KERNEL = 5
-
-# Steering deadband (pixels) — set to 0 for maximum sensitivity on narrow tracks.
-LANE_STEERING_DEADBAND = 0
-
-# Canny edge detection (fallback mode only, used when LANE_USE_ADAPTIVE_THRESH=False)
-CANNY_LOW = 40
+CANNY_LOW  = 40
 CANNY_HIGH = 120
-
-# Gaussian blur kernel (fallback mode)
 BLUR_KERNEL = (5, 5)
 
-# HSV color range for white lane markings (fallback mode)
-LANE_WHITE_HSV_LOW  = (0,   0, 130)
-LANE_WHITE_HSV_HIGH = (180, 50, 255)
-
-# HSV color range for yellow lane markings (not used on indoor track)
-LANE_YELLOW_HSV_LOW  = (15, 80, 120)
+LANE_WHITE_HSV_LOW   = (0,   0, 130)
+LANE_WHITE_HSV_HIGH  = (180, 50, 255)
+LANE_YELLOW_HSV_LOW  = (15,  80, 120)
 LANE_YELLOW_HSV_HIGH = (35, 255, 255)
 
-# Hough transform parameters (fallback mode)
-HOUGH_RHO = 1
+HOUGH_RHO           = 1
 HOUGH_THETA_DIVISOR = 180
-HOUGH_THRESHOLD    = 20
-HOUGH_MIN_LINE_LEN = 15     # shortened for indoor tape
-HOUGH_MAX_LINE_GAP = 50     # reduced — indoor tape is continuous, not dashed
+HOUGH_THRESHOLD     = 20
+HOUGH_MIN_LINE_LEN  = 15
+HOUGH_MAX_LINE_GAP  = 50
 
-# Lane departure
-LANE_DEPARTURE_THRESHOLD = 30  # pixels from center
+LANE_DEPARTURE_THRESHOLD = 30
 
-# LKA steering is pure proportional on the RPi (normalized offset -1..1).
-# Motor-level PID (pidL / pidR) lives in the ESP32 Tasks.cpp / Navigation.cpp.
-
-# Bird's-eye view perspective points (ratio of frame dimensions)
-# Tuned for low-mounted, downward-angled camera on mini car.
-# The source quad brackets the visible road surface.
-# Adjust these after checking a sample frame from your camera.
+# Bird's-eye view perspective ratios (fraction of frame dimensions)
 BEV_SRC_RATIOS = [
-    (0.00, 1.00),   # bottom-left  — full width at ground level
-    (0.20, 0.65),   # top-left     — lower horizon, wider view
-    (0.80, 0.65),   # top-right
-    (1.00, 1.00),   # bottom-right
+    (0.00, 1.00),
+    (0.20, 0.65),
+    (0.80, 0.65),
+    (1.00, 1.00),
 ]
 BEV_DST_RATIOS = [
-    (0.10, 1.0),    # bottom-left
-    (0.10, 0.0),    # top-left
-    (0.90, 0.0),    # top-right
-    (0.90, 1.0),    # bottom-right
+    (0.10, 1.0),
+    (0.10, 0.0),
+    (0.90, 0.0),
+    (0.90, 1.0),
 ]
 
-# ─── Traffic Sign Recognition ─────────────────────────────────────────────────
-TSR_MODEL_PATH = os.path.join(MODELS_DIR, "tsr_mobilenetv2_int8.tflite")
-TSR_CONFIDENCE_THRESHOLD = 0.6    # Per-frame threshold (stability comes from voting)
-TSR_INPUT_SIZE = 96
-TSR_NUM_CLASSES = 43
-TSR_FRAME_SKIP = 1                # 1 = process every scheduled call, 2 = skip every other
+# ── Traffic Sign Recognition (TSR) ────────────────────────────────────────────
+TSR_MODEL_PATH           = os.path.join(MODELS_DIR, "tsr_mobilenetv2_int8.tflite")
+TSR_CONFIDENCE_THRESHOLD = 0.6
+TSR_INPUT_SIZE           = 96
+TSR_NUM_CLASSES          = 43
+TSR_FRAME_SKIP           = 1
 
-# GTSRB class names (subset of important ones for prototype)
 TSR_SIGN_NAMES = {
-    0: "Speed limit 20",
-    1: "Speed limit 30",
-    2: "Speed limit 50",
-    3: "Speed limit 60",
-    4: "Speed limit 70",
-    5: "Speed limit 80",
-    6: "End speed 80",
-    7: "Speed limit 100",
-    8: "Speed limit 120",
-    9: "No passing",
+    0:  "Speed limit 20",
+    1:  "Speed limit 30",
+    2:  "Speed limit 50",
+    3:  "Speed limit 60",
+    4:  "Speed limit 70",
+    5:  "Speed limit 80",
+    6:  "End speed 80",
+    7:  "Speed limit 100",
+    8:  "Speed limit 120",
+    9:  "No passing",
     10: "No passing >3.5t",
     11: "Right-of-way next",
     12: "Priority road",
@@ -147,135 +113,105 @@ TSR_SIGN_NAMES = {
     42: "End no passing >3.5t",
 }
 
-# Speed limit mappings (sign class → normalized speed 0.0–1.0)
-# These go directly to Command.speed_y (jd.y on ESP32) without further division.
-# Previously mapped to PWM 0–255 which caused a double-normalization bug
-# (DecisionManager /255 → ACC.set_speed_limit /255 = /65025 effective).
+# Normalized speed setpoints (0.0–1.0) for each speed-limit sign class
 TSR_SPEED_LIMITS = {
-    0:  0.20,   # 20 km/h  (very slow)
-    1:  0.31,   # 30 km/h
-    2:  0.47,   # 50 km/h
-    3:  0.59,   # 60 km/h
-    4:  0.71,   # 70 km/h
-    5:  0.78,   # 80 km/h
-    7:  0.90,   # 100 km/h
-    8:  1.00,   # 120 km/h (full speed)
-    14: 0.0,    # Stop sign → stop
+    0:  0.20,
+    1:  0.31,
+    2:  0.47,
+    3:  0.59,
+    4:  0.71,
+    5:  0.78,
+    7:  0.90,
+    8:  1.00,
+    14: 0.0,
 }
 
-# ─── Pothole Detection ────────────────────────────────────────────────────────
-POTHOLE_MODEL_PATH = os.path.join(MODELS_DIR, "pothole_mobilenetv2_int8.tflite")
-POTHOLE_CONFIDENCE_THRESHOLD = 0.6    # output[1] = pothole prob; tune after real-road tests
-POTHOLE_INPUT_SIZE = 128      # Using classifier approach (faster)
-POTHOLE_USE_SSD = False       # Set True for SSD detector (slower but precise)
-POTHOLE_SSD_MODEL_PATH = os.path.join(MODELS_DIR, "pothole_ssd_mobilenetv2_int8.tflite")
-POTHOLE_SSD_INPUT_SIZE = 300
+# ── Pothole Detection ─────────────────────────────────────────────────────────
+POTHOLE_MODEL_PATH           = os.path.join(MODELS_DIR, "pothole_mobilenetv2_int8.tflite")
+POTHOLE_CONFIDENCE_THRESHOLD = 0.6
+POTHOLE_INPUT_SIZE           = 128
+POTHOLE_USE_SSD              = False
+POTHOLE_SSD_MODEL_PATH       = os.path.join(MODELS_DIR, "pothole_ssd_mobilenetv2_int8.tflite")
+POTHOLE_SSD_INPUT_SIZE       = 300
+POTHOLE_STEER_MAGNITUDE      = 60
 
-# Avoidance steering magnitude
-POTHOLE_STEER_MAGNITUDE = 60  # PWM offset for avoidance
+# ── Adaptive Cruise Control ───────────────────────────────────────────────────
+ACC_EMERGENCY_STOP_DIST = 10
+ACC_MIN_FOLLOW_DIST     = 25
+ACC_CRUISE_DIST         = 50
+ACC_DEFAULT_SPEED       = 50
+ACC_MAX_SPEED           = 160
 
-# ─── Adaptive Cruise Control ─────────────────────────────────────────────────
-ACC_EMERGENCY_STOP_DIST = 10   # cm — slam brakes
-ACC_MIN_FOLLOW_DIST = 25       # cm — slow down significantly
-ACC_CRUISE_DIST = 50           # cm — maintain speed
-ACC_DEFAULT_SPEED = 50         # PWM — set to slow crawl for debugging (ESP32 floor is ~135)
-ACC_MAX_SPEED = 160            # PWM — absolute max speed for testing
-
-# ACC PID removed — speed control is handled by the ESP32 motor driver.
-# ACC now outputs a normalized speed setpoint (0.0–1.0) → ESP32 jd.y.
-ACC_PID_KP = 2.0   # kept for reference only — not used by Python
+ACC_PID_KP = 2.0
 ACC_PID_KI = 0.05
 ACC_PID_KD = 0.5
 
-# Encoder constants
-ENCODER_TICKS_PER_REV = 20    # Ticks per wheel revolution
-WHEEL_DIAMETER_CM = 6.5       # Wheel diameter in cm
-WHEEL_CIRCUMFERENCE_CM = WHEEL_DIAMETER_CM * 3.14159
+ENCODER_TICKS_PER_REV   = 20
+WHEEL_DIAMETER_CM       = 6.5
+WHEEL_CIRCUMFERENCE_CM  = WHEEL_DIAMETER_CM * 3.14159
 
-# ─── Decision Manager ────────────────────────────────────────────────────────
-# Priority levels (lower = higher priority)
-PRIORITY_EMERGENCY_STOP = 1
-PRIORITY_TRAFFIC_LIGHT = 2
-PRIORITY_POTHOLE_AVOID = 3
+# ── Decision Manager ──────────────────────────────────────────────────────────
+PRIORITY_EMERGENCY_STOP  = 1
+PRIORITY_TRAFFIC_LIGHT   = 2
+PRIORITY_POTHOLE_AVOID   = 3
 PRIORITY_TSR_SPEED_LIMIT = 4
-PRIORITY_ACC_SPEED = 5
-PRIORITY_LKA_STEER = 6
-PRIORITY_LDW_WARNING = 7
+PRIORITY_ACC_SPEED       = 5
+PRIORITY_LKA_STEER       = 6
+PRIORITY_LDW_WARNING     = 7
 
-# Steering range
 STEER_MIN = -100
-STEER_MAX = 100
-SPEED_MIN = 0
-SPEED_MAX = 255
+STEER_MAX  = 100
+SPEED_MIN  = 0
+SPEED_MAX  = 255
 
-# ─── Pipeline Scheduler ──────────────────────────────────────────────────────
-# Which frame index modulo to run each module
-SCHEDULE_LANE_EVERY = 1       # Every frame
-SCHEDULE_ACC_EVERY = 2        # Every 2nd frame
-SCHEDULE_TSR_OFFSET = 1       # Runs on frame 1, 5, 9, ...
-SCHEDULE_TSR_EVERY = 4        # Every 4th frame
-SCHEDULE_POTHOLE_OFFSET = 3   # Runs on frame 3, 7, 11, ...
-SCHEDULE_POTHOLE_EVERY = 4    # Every 4th frame
+# ── Pipeline Scheduler ────────────────────────────────────────────────────────
+SCHEDULE_LANE_EVERY      = 1
+SCHEDULE_ACC_EVERY       = 2
+SCHEDULE_TSR_OFFSET      = 1
+SCHEDULE_TSR_EVERY       = 4
+SCHEDULE_POTHOLE_OFFSET  = 3
+SCHEDULE_POTHOLE_EVERY   = 4
 
-# ─── Logging ──────────────────────────────────────────────────────────────────
-LOG_LEVEL = "DEBUG"           # Changed to DEBUG to see raw pothole/TSR scores — set back to INFO in production
-LOG_FILE = os.path.join(BASE_DIR, "tara_adas.log")
-LOG_FPS = True                # Print FPS to console
+# ── Logging ───────────────────────────────────────────────────────────────────
+LOG_LEVEL = "INFO"
+LOG_FILE  = os.path.join(BASE_DIR, "tara_adas.log")
+LOG_FPS   = True
 
-# ─── Cloud (Firebase) ────────────────────────────────────────────────────────
-# All cloud uploads are async and non-blocking.
-# If Firebase is not configured, the prototype runs fully offline.
-CLOUD_ENABLED = True          # Set False to skip cloud entirely
+# ── Cloud (Firebase) ──────────────────────────────────────────────────────────
+CLOUD_ENABLED              = True
+FIREBASE_CREDENTIALS_PATH  = os.path.join(BASE_DIR, "firebase_credentials.json")
+FIREBASE_DB_URL            = ""
+FIREBASE_STORAGE_BUCKET    = ""
+CLOUD_TELEMETRY_INTERVAL   = 2.0
 
-# Firebase project credentials — download from Firebase Console:
-# Project Settings → Service Accounts → Generate new private key
-FIREBASE_CREDENTIALS_PATH = os.path.join(BASE_DIR, "firebase_credentials.json")
-
-# Firebase Realtime Database URL (from Firebase Console → Realtime Database)
-FIREBASE_DB_URL = ""          # e.g. "https://tara-adas-default-rtdb.firebaseio.com"
-
-# Firebase Storage bucket (from Firebase Console → Storage)
-FIREBASE_STORAGE_BUCKET = ""  # e.g. "tara-adas.appspot.com"
-
-# How often to push telemetry (seconds) — lower = more data, more bandwidth
-CLOUD_TELEMETRY_INTERVAL = 2.0
-
-# ─── Local Recording ─────────────────────────────────────────────────────────
-# Always-on local backup — writes sensor CSV + event snapshots to SD card.
+# ── Local Recording ───────────────────────────────────────────────────────────
 LOCAL_RECORDING_ENABLED = True
-LOCAL_RECORDING_DIR = os.path.join(BASE_DIR, "recordings")
+LOCAL_RECORDING_DIR     = os.path.join(BASE_DIR, "recordings")
 
-# ─── Traffic Light Recognition ───────────────────────────────────────────────
-TL_ENABLED = True
-TL_MIN_PIXELS = 800  # Increased from 500 to reduce false positives
+# ── Traffic Light Recognition ─────────────────────────────────────────────────
+TL_ENABLED         = True
+TL_MIN_PIXELS      = 800
 
-# HSV Ranges for traffic lights (tuned for indoor/bright LED lights)
-# Red range 1 (low hue end): covers H=0-10
-TL_RED_LOW = (0, 100, 100)
-TL_RED_HIGH = (10, 255, 255)
-
-# Red range 2 (high hue end): covers H=170-180 (red wraps in HSV)
-TL_RED_LOW_2 = (170, 100, 100)
+TL_RED_LOW    = (0,   100, 100)
+TL_RED_HIGH   = (10,  255, 255)
+TL_RED_LOW_2  = (170, 100, 100)
 TL_RED_HIGH_2 = (180, 255, 255)
 
-# Yellow: (15, 100, 100) to (35, 255, 255)
-TL_YELLOW_LOW = (15, 100, 100)
-TL_YELLOW_HIGH = (35, 255, 255)
+TL_YELLOW_LOW  = (15,  100, 100)
+TL_YELLOW_HIGH = (35,  255, 255)
 
-# Green: (40, 50, 50) to (90, 255, 255)
-TL_GREEN_LOW = (40, 50, 50)
+TL_GREEN_LOW  = (40, 50,  50)
 TL_GREEN_HIGH = (90, 255, 255)
 
-# Shape validation
-TL_MIN_CIRCULARITY = 0.5     # 0.0–1.0, reject non-circular blobs
-TL_MIN_CONTOUR_AREA = 200    # minimum contour area in pixels
+TL_MIN_CIRCULARITY  = 0.5
+TL_MIN_CONTOUR_AREA = 200
 
-# ─── OpenCV Sign Detection ────────────────────────────────────────────────────
-SIGN_BLUE_LOW = (100, 100, 50)
-SIGN_BLUE_HIGH = (140, 255, 255)
-SIGN_WHITE_LOW = (0, 0, 180)
-SIGN_WHITE_HIGH = (180, 50, 255)
-SIGN_MIN_AREA = 150              # Lowered from 400 for earlier detection
-SIGN_CIRCULARITY_THRESHOLD = 0.5 # Lowered from 0.6 for robustness at angles
-SIGN_TURN_DELAY_SEC = 1.0        # Delay before starting the sharp turn
-SIGN_TURN_HOLD_SEC = 1.2         # Duration of the sharp "90-degree" steer
+# ── OpenCV Sign Detection ─────────────────────────────────────────────────────
+SIGN_BLUE_LOW             = (100, 100,  50)
+SIGN_BLUE_HIGH            = (140, 255, 255)
+SIGN_WHITE_LOW            = (0,   0,   180)
+SIGN_WHITE_HIGH           = (180,  50, 255)
+SIGN_MIN_AREA             = 150
+SIGN_CIRCULARITY_THRESHOLD = 0.5
+SIGN_TURN_DELAY_SEC       = 1.0
+SIGN_TURN_HOLD_SEC        = 1.2
