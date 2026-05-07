@@ -1,4 +1,5 @@
-# 🚗 TARA — Throttle-Adaptive Road Autonomous
+#  TARA-Tracking_Adaptive_Road_Autonomous_Car
+
 
 > Real hardware ADAS prototype on Raspberry Pi 4B + ESP32.
 > All perception runs at the edge — no cloud, no GPU, no internet required.
