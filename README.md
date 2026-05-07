@@ -1,5 +1,17 @@
 #  TARA-Tracking_Adaptive_Road_Autonomous_Car
 
+![Python](https://img.shields.io/badge/Python-3.6+-blue)
+![CARLA](https://img.shields.io/badge/CARLA-0.9.x-orange)
+![ADAS](https://img.shields.io/badge/ADAS-ISO%2015623%20%7C%2015622%20%7C%2017361-yellowgreen)
+![Workflow](https://img.shields.io/badge/Workflow-Sim--to--Real-success)
+![License](https://img.shields.io/badge/License-MIT-lightgrey)
+
+![Raspberry Pi](https://img.shields.io/badge/-Raspberry_Pi-C51A4A?logo=Raspberry-Pi&logoColor=white)
+![ESP32](https://img.shields.io/badge/ESP32-E7352C?logo=espressif&logoColor=white)
+![OpenCV](https://img.shields.io/badge/OpenCV-5C3EE8?logo=opencv&logoColor=white)
+![TensorFlow Lite](https://img.shields.io/badge/TensorFlow_Lite-FF6F00?logo=tensorflow&logoColor=white)
+![Arduino](https://img.shields.io/badge/Arduino_IDE-00979D?logo=arduino&logoColor=white)
+![C++](https://img.shields.io/badge/C++-00599C?logo=c%2B%2B&logoColor=white)
 
 > Real hardware ADAS prototype on Raspberry Pi 4B + ESP32.
 > All perception runs at the edge — no cloud, no GPU, no internet required.
