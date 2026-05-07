@@ -27,3 +27,6 @@ Thumbs.db
 *.pdf
 *.mp4
 *.avi
+
+# Large GIF (>100 MB — host externally)
+*.gif

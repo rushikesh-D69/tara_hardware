@@ -1,11 +1,13 @@
-# TARA — Throttle-Adaptive Road Autonomous
+# 🚗 TARA — Throttle-Adaptive Road Autonomous
 
 > Real hardware ADAS prototype on Raspberry Pi 4B + ESP32.
 > All perception runs at the edge — no cloud, no GPU, no internet required.
 
+![TARA on track](docs/PICS/tara_robot_hero.png)
+
 ---
 
-## Simulation Companion
+## 🎮 Simulation Companion
 
 Before deploying to real hardware, validate the full ADAS decision stack inside the CARLA photorealistic simulator:
 
@@ -15,7 +17,7 @@ The simulation repo runs the same lane detection, TSR, ACC, and TLR pipeline ins
 
 ---
 
-## What TARA Does
+## 🤖 What TARA Does
 
 TARA is a differential-drive robot car that autonomously navigates an indoor test track using a stack of ADAS features:
 
@@ -33,7 +35,7 @@ All modules feed a priority arbitrator (`DecisionManager`) that outputs a single
 
 ---
 
-## Hardware
+## ⚙️ Hardware
 
 | Component | Detail |
 |-----------|--------|
@@ -49,7 +51,7 @@ All modules feed a priority arbitrator (`DecisionManager`) that outputs a single
 
 ---
 
-## Repository Layout
+## 📂 Repository Layout
 
 ```
 TARA/
@@ -87,7 +89,7 @@ TARA/
 
 ---
 
-## Quick Start
+## 🚀 Quick Start
 
 ```bash
 # 1. Clone and enter the repo
@@ -113,7 +115,9 @@ See [`walkthrough.md`](walkthrough.md) for the complete phase-by-phase guide.
 
 ---
 
-## System Architecture
+## 🏗️ System Architecture
+
+![System Architecture](docs/PICS/tara_system_architecture.png)
 
 ```
 Raspberry Pi 4B                             ESP32
@@ -135,6 +139,6 @@ Raspberry Pi 4B                             ESP32
 
 ---
 
-## License
+## 📝 License
 
 MIT — see [LICENSE](LICENSE).
