@@ -16,12 +16,9 @@
 > Real hardware ADAS prototype on Raspberry Pi 4B + ESP32.
 > All perception runs at the edge — no cloud, no GPU, no internet required.
 
-![TARA on track](docs/PICS/tara_robot_hero.png)
-
----
-
 ## 📺 Project Demo Video
-[![Watch TARA Autonomous Run](https://img.youtube.com/vi/aqz-KE-bpKQ/maxresdefault.jpg)](https://aseblr-my.sharepoint.com/:v:/g/personal/bl_en_u4ece23205_bl_students_amrita_edu/IQBQWoQdkXzRSrZKP6C_6L9nAat1XS3q58vhPzQDuP0mqzo?e=8RBRgA)
+{![TARA on track](docs/PICS/tara_robot_hero.png)}(https://aseblr-my.sharepoint.com/:v:/g/personal/bl_en_u4ece23205_bl_students_amrita_edu/IQBQWoQdkXzRSrZKP6C_6L9nAat1XS3q58vhPzQDuP0mqzo?e=8RBRgA)
+
 *Click the image above to watch the TARA hardware demo on SharePoint.*
 
 ---
