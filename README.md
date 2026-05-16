@@ -13,15 +13,17 @@
 ![Arduino](https://img.shields.io/badge/Arduino_IDE-00979D?logo=arduino&logoColor=white)
 ![C++](https://img.shields.io/badge/C++-00599C?logo=c%2B%2B&logoColor=white)
 
-<!-- Project Demo Video -->
-<video src="TARA.mp4" controls autoplay loop muted width="100%">
-  Your browser does not support the video tag.
-</video>
-
 > Real hardware ADAS prototype on Raspberry Pi 4B + ESP32.
 > All perception runs at the edge — no cloud, no GPU, no internet required.
 
 ![TARA on track](docs/PICS/tara_robot_hero.png)
+
+---
+
+## Project Demo Video
+<video src="TARA.mp4" controls autoplay loop muted width="100%">
+  Your browser does not support the video tag.
+</video>
 
 ---
 
