@@ -20,10 +20,9 @@
 
 ---
 
-## Project Demo Video
-<video src="TARA.mp4" controls autoplay loop muted width="100%">
-  Your browser does not support the video tag.
-</video>
+## 📺 Project Demo Video
+[![Watch TARA Autonomous Run](https://img.youtube.com/vi/aqz-KE-bpKQ/maxresdefault.jpg)](https://aseblr-my.sharepoint.com/:v:/g/personal/bl_en_u4ece23205_bl_students_amrita_edu/IQBQWoQdkXzRSrZKP6C_6L9nAat1XS3q58vhPzQDuP0mqzo?e=8RBRgA)
+*Click the image above to watch the TARA hardware demo on SharePoint.*
 
 ---
 
