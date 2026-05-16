@@ -17,7 +17,7 @@
 > All perception runs at the edge — no cloud, no GPU, no internet required.
 
 ## 📺 Project Demo Video
-{![TARA on track](docs/PICS/tara_robot_hero.png)}(https://aseblr-my.sharepoint.com/:v:/g/personal/bl_en_u4ece23205_bl_students_amrita_edu/IQBQWoQdkXzRSrZKP6C_6L9nAat1XS3q58vhPzQDuP0mqzo?e=8RBRgA)
+[![TARA on track](docs/PICS/tara_robot_hero.png)}(https://aseblr-my.sharepoint.com/:v:/g/personal/bl_en_u4ece23205_bl_students_amrita_edu/IQBQWoQdkXzRSrZKP6C_6L9nAat1XS3q58vhPzQDuP0mqzo?e=8RBRgA)
 
 *Click the image above to watch the TARA hardware demo on SharePoint.*
 
